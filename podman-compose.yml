@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  aero-agent:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: aeroagent:v1
+    container_name: aeroagent-app
+    env_file:
+      - .env
+    ports:
+      - "8501:8501"
+    stdin_open: true
+    tty: true
+    command: ["python", "-m", "src.ui.cli"]

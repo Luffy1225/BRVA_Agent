@@ -1,0 +1,13 @@
+# Core LLM SDK & Schema
+google-genai>=0.1.1
+google-generativeai>=0.8.3
+pydantic>=2.7.0
+python-dotenv>=1.0.1
+
+# Deterministic Telemetry Analysis & HTTP Client
+pandas>=2.2.0
+requests>=2.31.0
+
+# User Interfaces
+streamlit>=1.35.0
+rich>=13.7.0
