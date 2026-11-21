@@ -36,5 +36,16 @@ class TestAgentTrace(unittest.TestCase):
         self.assertIn("不合格", resp)
         self.assertIn("硬著陸", resp)
 
+    def test_greeting_flow(self):
+        resp = self.agent.run("你好", verbose=False)
+        self.assertIn("機長您好", resp)
+        self.assertIn("簽派", resp)
+        self.assertNotIn("BR184", resp)
+
+    def test_fallback_guidance_flow(self):
+        resp = self.agent.run("今天吃什麼", verbose=False)
+        self.assertIn("我是您的 AI 簽派副駕", resp)
+        self.assertNotIn("BR184", resp)
+
 if __name__ == "__main__":
     unittest.main()

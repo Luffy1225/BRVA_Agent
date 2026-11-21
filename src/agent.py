@@ -145,61 +145,116 @@ class AeroAgent:
             return final_resp
 
         # -------------------------------------------------------------
-        # 4. Route Recommendation & Weather Dispatch Planning
+        # 4. Greeting & Capability Introduction Check
         # -------------------------------------------------------------
-        # Extract airports
-        dep = "RCTP"
-        arr = "RJAA"
-        aircraft = "B78X"
+        greetings = ["你好", "您好", "嗨", "早安", "午安", "晚安", "哈囉", "hello", "hi", "hey"]
+        if any(user_text.lower().startswith(g) or user_text.lower() == g for g in greetings):
+            final_resp = (
+                "機長您好！我是長榮虛擬航空 (BRVA) 智慧飛行簽派與考核副駕駛。✈️\n\n"
+                "今天我可以為您協助以下任務：\n"
+                "1. 🛫 【航網簽派與氣象分析】：例如「我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣與推薦班次」\n"
+                "2. 📖 【飛行 SOP 與規章檢索】：例如「請問雙發噴射客機發動機啟動順序是多少？」或「術科實作考核哪些是一票否決標準？」\n"
+                "3. 📊 【黑盒子時序審核】：例如「請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄」\n\n"
+                "請問今天有什麼我可以為您服務的嗎？"
+            )
+            self.memory.add_message("assistant", final_resp)
+            return final_resp
 
-        if "成田" in user_text or "RJAA" in user_text.upper():
+        # -------------------------------------------------------------
+        # 5. Route Recommendation & Weather Dispatch Planning Check
+        # -------------------------------------------------------------
+        flight_keywords = [
+            "飛往", "開 ", "班次", "航班", "簽派", "航線", "航路", "天氣", "跑道", "風向", "metar", "風速",
+            "rctp", "rjaa", "rjbb", "vhhh", "桃園", "成田", "關西", "香港", "b78x", "b77w", "a321"
+        ]
+        has_flight_intent = any(k in user_text.lower() for k in flight_keywords)
+
+        if has_flight_intent:
+            # Extract airports
+            dep = "RCTP"
             arr = "RJAA"
-        elif "關西" in user_text or "RJBB" in user_text.upper():
-            arr = "RJBB"
-        elif "香港" in user_text or "VHHH" in user_text.upper():
-            arr = "VHHH"
+            aircraft = "B78X"
 
-        if "777" in user_text or "B77W" in user_text.upper():
-            aircraft = "B77W"
-        elif "321" in user_text or "A321" in user_text.upper():
-            aircraft = "A321"
+            if "成田" in user_text or "RJAA" in user_text.upper():
+                arr = "RJAA"
+            elif "關西" in user_text or "RJBB" in user_text.upper():
+                arr = "RJBB"
+            elif "香港" in user_text or "VHHH" in user_text.upper():
+                arr = "VHHH"
 
-        if verbose:
-            print(f"\n[🤖 Agent 決策] 使用者欲由 {dep} 執飛 {aircraft} 至 {arr}。執行兩步驟工具鏈：航線檢索 ➡️ 目的地起降氣象解析...")
-            print(f"[🔍 Tool Call 1] -> query_virtual_routes(dep_icao='{dep}', arr_icao='{arr}', aircraft_type='{aircraft}')")
+            if "777" in user_text or "B77W" in user_text.upper():
+                aircraft = "B77W"
+            elif "321" in user_text or "A321" in user_text.upper():
+                aircraft = "A321"
 
-        routes = query_virtual_routes(dep, arr, aircraft)
-        flight = routes[0] if routes else {"flight_number": "BR184", "aircraft": aircraft, "flight_time": "2h 40m"}
+            if verbose:
+                print(f"\n[🤖 Agent 決策] 使用者欲由 {dep} 執飛 {aircraft} 至 {arr}。執行兩步驟工具鏈：航線檢索 ➡️ 目的地起降氣象解析...")
+                print(f"[🔍 Tool Call 1] -> query_virtual_routes(dep_icao='{dep}', arr_icao='{arr}', aircraft_type='{aircraft}')")
 
-        if verbose:
-            print(f"[📥 Observation 1] -> 匹配推薦班次：{flight['flight_number']}（{flight['aircraft']}，航程預估 {flight['flight_time']}）")
-            print(f"[🔍 Tool Call 2] -> fetch_aviation_weather(icao='{arr}', runway='16R')")
+            routes = query_virtual_routes(dep, arr, aircraft)
+            flight = routes[0] if routes else {"flight_number": "BR184", "aircraft": aircraft, "flight_time": "2h 40m"}
 
-        weather = fetch_aviation_weather(arr, "16R")
+            if verbose:
+                print(f"[📥 Observation 1] -> 匹配推薦班次：{flight['flight_number']}（{flight['aircraft']}，航程預估 {flight['flight_time']}）")
+                print(f"[🔍 Tool Call 2] -> fetch_aviation_weather(icao='{arr}', runway='16R')")
 
-        if verbose:
-            print(f"[📥 Observation 2] -> {arr} 即時 METAR 取得成功，16R 跑道側風分量 {weather['crosswind_kts']} 節\n")
+            weather = fetch_aviation_weather(arr, "16R")
 
-        # Save pending dispatch into Agent Memory
-        self.memory.set_pending(PendingDispatch(
-            flight_number=flight['flight_number'],
-            dep_icao=dep,
-            arr_icao=arr,
-            aircraft_type=aircraft,
-            recommended_runway="16R",
-            estimated_time=flight['flight_time'],
-            crosswind_kts=weather['crosswind_kts']
-        ))
+            if verbose:
+                print(f"[📥 Observation 2] -> {arr} 即時 METAR 取得成功，16R 跑道側風分量 {weather['crosswind_kts']} 節\n")
+
+            # Save pending dispatch into Agent Memory
+            self.memory.set_pending(PendingDispatch(
+                flight_number=flight['flight_number'],
+                dep_icao=dep,
+                arr_icao=arr,
+                aircraft_type=aircraft,
+                recommended_runway="16R",
+                estimated_time=flight['flight_time'],
+                crosswind_kts=weather['crosswind_kts']
+            ))
+
+            final_resp = (
+                f"報告機長，為您完成簽派規劃與氣象分析：\n\n"
+                f"1. 【推薦航班】：{flight['flight_number']}（{dep} 🛫 ➡️ {arr} 🛬，預估航程 {flight['flight_time']}，由 {aircraft} 客機執飛）。\n\n"
+                f"2. 【目的地天氣簡報 ({arr})】：\n"
+                f"   • METAR 報文：`{weather['raw_metar']}`\n"
+                f"   • 跑道建議：建議使用 16R 跑道進場。\n"
+                f"   • 風向與側風評估：{weather['risk_assessment']}\n\n"
+                f"3. 【防禦性操作提醒】：側風雖然合規，但若存在陣風，進場平飄時請適時下風向盤舵修正偏流，保持機頭對正跑道中心線。\n\n"
+                f"👉 如果沒有其他要修改的是否直接為您簽派 {flight['flight_number']}？"
+            )
+            self.memory.add_message("assistant", final_resp)
+            return final_resp
+
+        # -------------------------------------------------------------
+        # 6. Fallback / LLM Open Response
+        # -------------------------------------------------------------
+        if self.gemini_client:
+            try:
+                if hasattr(self.gemini_client, "models"):
+                    resp = self.gemini_client.models.generate_content(
+                        model=self.model_name,
+                        contents=user_text,
+                    )
+                    final_resp = resp.text
+                elif hasattr(self.gemini_client, "generate_content"):
+                    resp = self.gemini_client.generate_content(user_text)
+                    final_resp = resp.text
+                else:
+                    final_resp = None
+                if final_resp:
+                    self.memory.add_message("assistant", final_resp)
+                    return final_resp
+            except Exception:
+                pass
 
         final_resp = (
-            f"報告機長，為您完成簽派規劃與氣象分析：\n\n"
-            f"1. 【推薦航班】：{flight['flight_number']}（{dep} 🛫 ➡️ {arr} 🛬，預估航程 {flight['flight_time']}，由 {aircraft} 客機執飛）。\n\n"
-            f"2. 【目的地天氣簡報 ({arr})】：\n"
-            f"   • METAR 報文：`{weather['raw_metar']}`\n"
-            f"   • 跑道建議：建議使用 16R 跑道進場。\n"
-            f"   • 風向與側風評估：{weather['risk_assessment']}\n\n"
-            f"3. 【防禦性操作提醒】：側風雖然合規，但若存在陣風，進場平飄時請適時下風向盤舵修正偏流，保持機頭對正跑道中心線。\n\n"
-            f"👉 如果沒有其他要修改的是否直接為您簽派 {flight['flight_number']}？"
+            "報告機長，我是您的 AI 簽派副駕。請告訴我您的具體飛行需求，例如：\n\n"
+            "• 航網簽派：「我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣與推薦班次」\n"
+            "• 規章與 SOP：「請問雙發客機的發動機啟動順序與滑行速限是多少？」\n"
+            "• 考核規章：「術科實作考核中，哪些重大違規情事會直接觸發一票否決？」\n"
+            "• 黑盒子審核：「請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄」"
         )
         self.memory.add_message("assistant", final_resp)
         return final_resp
