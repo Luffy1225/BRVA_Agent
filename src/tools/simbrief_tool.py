@@ -2,11 +2,25 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from src.client import backend_client
 
-class SimbriefDispatchInput(BaseModel):
-    flight_number: str = Field(..., description="Flight number, e.g. 'BR184'")
-    dep_icao: str = Field(..., description="Departure ICAO, e.g. 'RCTP'")
-    arr_icao: str = Field(..., description="Arrival ICAO, e.g. 'RJAA'")
-    aircraft_type: str = Field("B78X", description="Aircraft type code, e.g. 'B78X', 'B77W'")
+class SimbriefInput(BaseModel):
+    flight_number: str = Field(..., description="航班號碼，如 'BR184'")
+    dep_icao: str = Field(..., description="起飛機場 ICAO，如 'RCTP'")
+    arr_icao: str = Field(..., description="目的地機場 ICAO，如 'RJAA'")
+    aircraft_type: str = Field("B78X", description="機型，如 'B78X'")
+
+# Backward-compatible alias
+SimbriefDispatchInput = SimbriefInput
+
+class SimbriefOutput(BaseModel):
+    status: str
+    flight_number: str
+    route: str
+    cruise_alt: str
+    block_fuel_kgs: int
+    est_flight_time: str
+    alternate_airport: str
+    ofp_url: str
+    summary_text: str
 
 def generate_simbrief_dispatch(
     flight_number: str,
@@ -102,10 +116,14 @@ def generate_simbrief_dispatch(
         "arr_icao": clean_arr,
         "aircraft_type": clean_type,
         "route": plan_info["route"],
+        "cruise_alt": plan_info["alt"],
         "cruise_altitude": plan_info["alt"],
         "block_fuel_kgs": plan_info["fuel_kgs"],
+        "est_flight_time": plan_info["time"],
         "estimated_flight_time": plan_info["time"],
         "alternate_airport": plan_info["alternate"],
+        "ofp_url": simbrief_url,
         "simbrief_ofp_url": simbrief_url,
-        "summary": summary_text
+        "summary_text": summary_text,
+        "summary": summary_text,
     }

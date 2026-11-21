@@ -1,14 +1,36 @@
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from pathlib import Path
 import pandas as pd
 from pydantic import BaseModel, Field
 
 class TelemetryInput(BaseModel):
-    file_path: str = Field(..., description="Path to the flight telemetry CSV file")
-    aircraft_type: str = Field("B78X", description="Aircraft type code")
+    csv_path: Optional[str] = Field(None, description="飛行紀錄檔路徑")
+    file_path: Optional[str] = Field(None, description="飛行紀錄檔路徑 (別名)")
+    aircraft_type: str = Field("B78X", description="機型")
 
-def analyze_flight_telemetry(file_path: str, aircraft_type: str = "B78X") -> Dict[str, Any]:
+    def get_path(self) -> str:
+        return self.csv_path or self.file_path or ""
+
+class TelemetryViolation(BaseModel):
+    phase: str
+    item: str
+    standard: str
+    peak_value: str
+    timestamp: str
+    severity: str
+    deduction: int
+
+class TelemetryOutput(BaseModel):
+    success: bool
+    is_passed: bool
+    score: int
+    touchdown_g: float
+    violations: List[Dict[str, Any]]
+    critical_failures: List[str]
+    summary: str
+
+def analyze_flight_telemetry(file_path: Optional[str] = None, aircraft_type: str = "B78X", csv_path: Optional[str] = None) -> Dict[str, Any]:
     """
     Deterministic telemetry audit parser using Pandas.
     Audits flight envelope parameters across flight phases:
@@ -17,19 +39,20 @@ def analyze_flight_telemetry(file_path: str, aircraft_type: str = "B78X") -> Dic
     3. Touchdown vertical G-load (<= 1.6G hard-landing limit).
     Completely eliminates LLM arithmetic hallucinations.
     """
-    target_path = Path(file_path)
+    actual_path = csv_path or file_path or ""
+    target_path = Path(actual_path)
     if not target_path.is_absolute():
         # Look in workspace or data dir
         if not target_path.exists():
             from src.config import config
-            cand = config.DATA_DIR / file_path
+            cand = config.DATA_DIR / actual_path
             if cand.exists():
                 target_path = cand
 
     if not target_path.exists():
         return {
             "success": False,
-            "error": f"Telemetry file '{file_path}' not found on disk."
+            "error": f"Telemetry file '{actual_path}' not found on disk."
         }
 
     try:

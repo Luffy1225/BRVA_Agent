@@ -4,9 +4,23 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from src.client import backend_client
 
-class WeatherQueryInput(BaseModel):
-    icao: str = Field(..., description="4-letter ICAO airport code, e.g. RCTP, RJAA, VHHH")
-    runway: Optional[str] = Field("16R", description="Target runway designator, e.g. 05L, 23R, 16R, 34L")
+class WeatherInput(BaseModel):
+    icao: str = Field(..., description="4 碼 ICAO 機場代碼，如 'RCTP', 'RJAA', 'VHHH'")
+    runway: Optional[str] = Field("16R", description="預計起降跑道，如 '05L', '23R', '16R', '34L'")
+
+# Backward-compatible alias
+WeatherQueryInput = WeatherInput
+
+class WeatherOutput(BaseModel):
+    raw_metar: str
+    wind_dir: int
+    wind_speed_kts: int
+    gust_kts: Optional[int] = None
+    crosswind_kts: float
+    headwind_kts: float
+    flight_category: str = "VFR"  # VFR / IFR / LIFR
+    is_safe: bool
+    risk_notes: str
 
 def parse_runway_heading(runway: str) -> float:
     """Extracts numeric runway heading (e.g. '05L' -> 50 degrees, '16R' -> 160 degrees)."""
@@ -100,5 +114,6 @@ def fetch_aviation_weather(icao: str, runway: Optional[str] = "16R") -> Dict[str
         "headwind_kts": headwind,
         "is_safe": is_safe,
         "flight_category": "VFR",
+        "risk_notes": risk_notes,
         "risk_assessment": risk_notes,
     }
