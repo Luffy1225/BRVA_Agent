@@ -11,6 +11,7 @@ from src.tools import (
     analyze_flight_telemetry,
     query_flight_sop_and_regulations,
 )
+from src.llm import BaseLLMProvider, get_llm_provider
 
 SYSTEM_PROMPT = """你是由長榮航空虛擬航空 (EVA Air Virtual / BRVA) 打造的專業 AI 飛行簽派副駕駛與考核助理 (AeroAgent)。
 你的核心職責：
@@ -24,30 +25,13 @@ SYSTEM_PROMPT = """你是由長榮航空虛擬航空 (EVA Air Virtual / BRVA) �
 每次需要外部數據或官方規章時，主動呼叫相關工具。"""
 
 class AeroAgent:
-    def __init__(self, memory: Optional[AgentMemory] = None):
+    def __init__(
+        self,
+        memory: Optional[AgentMemory] = None,
+        llm_provider: Optional[BaseLLMProvider] = None
+    ):
         self.memory = memory or AgentMemory()
-        self.api_key = config.GEMINI_API_KEY
-        self.model_name = config.GEMINI_MODEL
-        self._init_gemini()
-
-    def _init_gemini(self):
-        """Initializes Google Gemini Client if API key is provided."""
-        self.gemini_client = None
-        if self.api_key and self.api_key != "your_gemini_api_key_here":
-            try:
-                from google import genai
-                self.gemini_client = genai.Client(api_key=self.api_key)
-            except Exception as e:
-                # Try google.generativeai fallback
-                try:
-                    import google.generativeai as gai
-                    gai.configure(api_key=self.api_key)
-                    self.gemini_client = gai.GenerativeModel(
-                        model_name=self.model_name,
-                        system_instruction=SYSTEM_PROMPT,
-                    )
-                except Exception as ex:
-                    print(f"[AeroAgent] Warning: Failed to init Gemini SDK: {ex}. Running in deterministic rule engine mode.")
+        self.llm = llm_provider or get_llm_provider()
 
     def run(self, user_input: str, verbose: bool = True) -> str:
         """
@@ -228,22 +212,13 @@ class AeroAgent:
             return final_resp
 
         # -------------------------------------------------------------
-        # 6. Fallback / LLM Open Response
+        # 6. Fallback / Unified LLM Open Response (Ollama / Gemini / Offline)
         # -------------------------------------------------------------
-        if self.gemini_client:
+        if self.llm and self.llm.is_available() and self.llm.provider_name != "offline":
             try:
-                if hasattr(self.gemini_client, "models"):
-                    resp = self.gemini_client.models.generate_content(
-                        model=self.model_name,
-                        contents=user_text,
-                    )
-                    final_resp = resp.text
-                elif hasattr(self.gemini_client, "generate_content"):
-                    resp = self.gemini_client.generate_content(user_text)
-                    final_resp = resp.text
-                else:
-                    final_resp = None
-                if final_resp:
+                resp = self.llm.generate(prompt=user_text, system_prompt=SYSTEM_PROMPT)
+                if resp and resp.content and not resp.content.startswith("⚠️"):
+                    final_resp = resp.content
                     self.memory.add_message("assistant", final_resp)
                     return final_resp
             except Exception:

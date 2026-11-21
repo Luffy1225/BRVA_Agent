@@ -23,6 +23,9 @@
    - 支援直連生產站 API（帶 `x-agent-key` 鑑別），並內建本地離線快取，助教在無外網環境評測依然 100% 順暢。
 4. **民航規章與飛行手冊 RAG 知識庫 (Aviation RAG Engine)**：
    - 完整索引長榮虛擬航空三大核心法規（10 大階段 SOP、Live 機隊規章、實機術科考核手冊），採用輕量 In-Memory BM25 檢索並合成權威出處引文（【來源：...】），徹底杜絕規則幻覺。
+5. **多供應商 LLM 抽象層 (Unified LLM Abstraction Layer)**：
+   - 抽象化底層模型供應商，原生支援區域網路內/本機 **Ollama**（Llama 3、Qwen 2.5、DeepSeek 等）、雲端 **Google Gemini** 與 **離線確定性規則引擎 (Offline)**。
+   - 支援透過環境變數 `OLLAMA_BASE_URL` 連線至區網伺服器（例如 `http://192.168.1.100:11434`），具備主動健康檢查與自動優雅降級。
 
 ---
 
@@ -176,7 +179,7 @@ podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
 
 ## 六、 自動化測試證據 (Verification Evidence)
 
-本專案具備完整的自動化單元測試，涵蓋三角函數計算、航線匹配、OFP 產生、黑盒子超速/硬著陸、RAG 知識庫檢索與權威引文合成、多輪 ReAct 軌跡以及 Podman 容器化標準建置檢測：
+本專案具備完整的自動化單元測試，涵蓋三角函數計算、航線匹配、OFP 產生、黑盒子超速/硬著陸、RAG 知識庫檢索與權威引文合成、多供應商 LLM 抽象層 (Ollama/Gemini/Offline)、多輪 ReAct 軌跡以及 Podman 容器化標準建置檢測：
 
 ```bash
 python -m unittest discover tests
@@ -184,10 +187,10 @@ python -m unittest discover tests
 
 **測試執行結果**：
 ```text
-.......................
+.................................
 ----------------------------------------------------------------------
-Ran 23 tests in 0.170s
+Ran 33 tests in 0.247s
 
 OK
 ```
-23 項單元測試（含 9 項 RAG 專項檢索、邊界與端到端測試）100% 全數通過，展現了強大的工程品質與系統穩定性。
+33 項單元測試（含 8 項 LLM 抽象層測試與 9 項 RAG 專項檢索測試）100% 全數通過，展現了強大的工程品質與系統穩定性。

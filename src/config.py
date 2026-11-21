@@ -25,7 +25,15 @@ class Config:
     ROOT_DIR: Path = ROOT_DIR
     DATA_DIR: Path = DATA_DIR
 
-    # LLM Settings
+    # LLM Provider Configuration ('auto' | 'ollama' | 'gemini' | 'offline')
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "auto").lower()
+
+    # Ollama Settings (Local or LAN Server)
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "llama3")
+    OLLAMA_TIMEOUT_SECONDS: float = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "30.0"))
+
+    # Gemini Settings (Google Cloud AI)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
