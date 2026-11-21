@@ -3,17 +3,25 @@ import json
 from typing import Dict, Any, List, Optional
 from src.config import config
 from src.memory import AgentMemory, PendingDispatch
-from src.tools import TOOL_REGISTRY, fetch_aviation_weather, query_virtual_routes, generate_simbrief_dispatch, analyze_flight_telemetry
+from src.tools import (
+    TOOL_REGISTRY,
+    fetch_aviation_weather,
+    query_virtual_routes,
+    generate_simbrief_dispatch,
+    analyze_flight_telemetry,
+    query_flight_sop_and_regulations,
+)
 
 SYSTEM_PROMPT = """你是由長榮航空虛擬航空 (EVA Air Virtual / BRVA) 打造的專業 AI 飛行簽派副駕駛與考核助理 (AeroAgent)。
 你的核心職責：
 1. 協助機師查詢長榮/立榮航網班次、即時航空氣象 (METAR)、計算跑道側風與逆風分量、評估適航風險。
-2. 擔任簽派員：當推薦合適航班後，主動詢問機師「如果沒有其他要修改的是否直接為您簽派 [航班編號]？」。
-3. 當機師確認簽派時，呼叫簽派工具生成正式 SimBrief OFP 飛行計畫。
-4. 擔任黑盒子考核官：審查飛行遙測 CSV 紀錄，客觀抓出超速與接地 G 值違規。
+2. 檢索與解答長榮虛擬航空飛行標準作業程序 (SOP)、LIVE 機隊營運規範及術科實作檢定考核標準規章 (RAG 知識庫)。
+3. 擔任簽派員：當推薦合適航班後，主動詢問機師「如果沒有其他要修改的是否直接為您簽派 [航班編號]？」。
+4. 當機師確認簽派時，呼叫簽派工具生成正式 SimBrief OFP 飛行計畫。
+5. 擔任黑盒子考核官：審查飛行遙測 CSV 紀錄，客觀抓出超速與接地 G 值違規。
 
 請保持專業、幹練的民航飛行通聯語氣，使用台灣民航標準用語（如：進場、塔台、側風分量、平飄、接地）。
-每次需要外部數據時，主動呼叫相關工具。"""
+每次需要外部數據或官方規章時，主動呼叫相關工具。"""
 
 class AeroAgent:
     def __init__(self, memory: Optional[AgentMemory] = None):
@@ -104,7 +112,40 @@ class AeroAgent:
             return final_resp
 
         # -------------------------------------------------------------
-        # 3. Route Recommendation & Weather Dispatch Planning
+        # 3. RAG Knowledge Base Query (SOP, Live Rules, Practical Exam)
+        # -------------------------------------------------------------
+        rag_keywords = [
+            "sop", "手冊", "規定", "規章", "條款", "規範", "準則",
+            "啟動順序", "發動機啟動", "引擎啟動", "start sequence",
+            "滑行速限", "滑行速度", "地面速限", "起步推力", "breakaway",
+            "重飛", "穩定進場", "go-around", "放輪", "起落架", "gear",
+            "一票否決", "automatic fail", "失格", "及格", "扣分", "評分", "考核", "術科",
+            "五邊", "起落航線", "traffic pattern", "remaining in the pattern", "觸地重飛", "touch-and-go",
+            "live", "預約", "booking", "wait landing", "落地保護", "gse", "違規", "懲處", "strikes",
+            "墜機", "crash", "轉降", "divert", "呼號", "callsign"
+        ]
+        is_rag_query = any(k in user_text.lower() for k in rag_keywords)
+        is_flight_plan = any(k in user_text for k in ["飛往", "開 B78X", "推薦合適的班次", "推薦航班", "檢查目的地天氣"])
+
+        if is_rag_query and not is_flight_plan:
+            if verbose:
+                print(f"\n[🤖 Agent 決策] 識別為 SOP / 機隊規章 / 術科考核規章查詢，呼叫 RAG 知識檢索工具...")
+                print(f"[🔍 Tool Call] -> query_flight_sop_and_regulations(query='{user_text}')")
+
+            rag_res = query_flight_sop_and_regulations(user_text)
+
+            if verbose:
+                print(f"[📥 Observation] -> 檢索完成！命中 {rag_res.get('results_count')} 個相關規章條款\n")
+
+            final_resp = (
+                f"報告機長/學員，依據長榮虛擬航空官方規章檢索結果：\n\n"
+                f"{rag_res['direct_answer']}"
+            )
+            self.memory.add_message("assistant", final_resp)
+            return final_resp
+
+        # -------------------------------------------------------------
+        # 4. Route Recommendation & Weather Dispatch Planning
         # -------------------------------------------------------------
         # Extract airports
         dep = "RCTP"

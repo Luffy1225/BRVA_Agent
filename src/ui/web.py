@@ -34,9 +34,18 @@ with st.sidebar:
     if st.button("📊 情境三：黑盒子遙測超速與硬著陸檢測"):
         st.session_state.prompt_input = "請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄。"
 
+    if st.button("📖 情境四 (RAG)：SOP 引擎啟動順序與滑行速限"):
+        st.session_state.prompt_input = "請問 B777 與 A321 雙發噴射客機的地面發動機啟動順序與滑行速限是多少？"
+
+    if st.button("⚠️ 情境五 (RAG)：術科考核一票否決標準"):
+        st.session_state.prompt_input = "請問術科實作考核中，哪些重大違規情事會直接觸發一票否決 (Automatic Fail)？"
+
+    if st.button("🛑 情境六 (RAG)：LIVE 機隊預約上限與墜機通報"):
+        st.session_state.prompt_input = "請問 LIVE 機隊機師認領預約上限是幾架？若發生墜機事故需要在多久內通報？"
+
     st.divider()
     st.markdown("### 📋 系統狀態")
-    st.info("✅ ReAct 決策引擎：就緒\n\n✅ 4 大航空工具鏈：就緒\n\n✅ Podman 容器規範：符合")
+    st.info("✅ ReAct 決策引擎：就緒\n\n✅ 5 大航空工具鏈 (含 RAG)：就緒\n\n✅ 官方 SOP 知識庫：就緒\n\n✅ Podman 容器規範：符合")
 
 # Display conversation
 for msg in st.session_state.messages:

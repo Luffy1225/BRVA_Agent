@@ -9,7 +9,9 @@ def main():
     print("💡 系統已就緒，您可以輸入指令測試，例如：")
     print("   1. 我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣，推薦合適的班次，並告訴我降落時需要注意的風向風險。")
     print("   2. 請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄。")
-    print("   3. 輸入 'exit' 或 'quit' 退出對話。")
+    print("   3. 請問 B777 與 A321 雙發噴射客機的地面發動機啟動順序與滑行速限是多少？ (RAG 知識庫檢索)")
+    print("   4. 術科實作考核中，哪些重大違規情事會直接觸發一票否決 (Automatic Fail)？ (RAG 知識庫檢索)")
+    print("   5. 輸入 'exit' 或 'quit' 退出對話。")
     print("-" * 70)
 
     agent = AeroAgent()

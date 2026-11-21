@@ -21,6 +21,8 @@
    - 使用 Pandas 向量化時序演算法，精準抓出滑行超速（>26 kts）與接地過載（>1.6G 硬著陸），一票否決淘汰致命違規。
 3. **優雅離線 Fallback 與生產級安全**：
    - 支援直連生產站 API（帶 `x-agent-key` 鑑別），並內建本地離線快取，助教在無外網環境評測依然 100% 順暢。
+4. **民航規章與飛行手冊 RAG 知識庫 (Aviation RAG Engine)**：
+   - 完整索引長榮虛擬航空三大核心法規（10 大階段 SOP、Live 機隊規章、實機術科考核手冊），採用輕量 In-Memory BM25 檢索並合成權威出處引文（【來源：...】），徹底杜絕規則幻覺。
 
 ---
 
@@ -59,7 +61,7 @@ podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
 
 ## 三、 Tool 工具定義 (Tool Definitions)
 
-本系統依作業二要求實作 4 大專業工具，全數定義具體的 Pydantic 輸入/輸出規範與例外處理：
+本系統依作業二與民航飛行安全規範實作 5 大專業工具，全數定義具體的 Pydantic 輸入/輸出規範與例外處理：
 
 ### Tool 1：`fetch_aviation_weather`
 - **目的 (Purpose)**：抓取 ICAO 機場之最新 METAR 天氣報文，並以三角函數精確計算指定跑道的正逆風與側風分量，評估起降風險。
@@ -91,6 +93,17 @@ podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
 - **輸入 (Input)**：`file_path: str`（CSV 遙測檔案路徑）、`aircraft_type: str`。
 - **輸出 (Output)**：`is_passed`、`score`（百分制）、`touchdown_g`、違規時間戳記清單、一票否決項目。
 - **Error Handling**：檢查檔案路徑與必要欄位，並實作 **2 秒滑動視窗防護**，避免短暫陣風雜訊誤判超速。
+
+### Tool 5：`query_flight_sop_and_regulations` (Aviation RAG Engine)
+- **目的 (Purpose)**：長榮虛擬航空 (BRVA) 官方飛行文件檢索增強生成 (RAG) 工具。整合三大核心飛行規範（10 大飛行階段標準操作程序 SOP、Live 聯網飛行機隊規章、實機術科考核評分手冊），採用輕量高效的 In-Memory BM25 + 正則權重增益演算法與嚴格的引文合成機制，杜絕 LLM 規則幻覺。
+- **輸入 (Input)**：
+  - `query: str`（機師提問，例如「滑行速度限制與引擎啟動順序」或「術科考核幾分及格？嚴重違規扣分標準？」）
+  - `top_k: int`（檢索相關規範片段數量，預設 3）
+  - `category: Optional[str]`（限定檢索範圍：`sop` / `rules` / `exam` / `all`）
+- **輸出 (Output)**：
+  - `query: str`、`results_count: int`、`top_chunks: List[Dict]`（含章節標題、關聯性分數、文檔來源標籤）、`direct_answer: str`（經權威引文標記合成的綜合答覆）。
+- **Error Handling**：
+  - 若提問為空或查無符合之航法規章，回傳結構化引導提示，避免拋出未捕獲例外；若文檔目錄不存在，安全回退並記錄 Warning。
 
 ---
 
@@ -163,7 +176,7 @@ podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
 
 ## 六、 自動化測試證據 (Verification Evidence)
 
-本專案具備完整的自動化單元測試，涵蓋三角函數計算、航線匹配、OFP 產生、黑盒子超速/硬著陸、多輪 ReAct 軌跡以及 Podman 容器化標準建置檢測：
+本專案具備完整的自動化單元測試，涵蓋三角函數計算、航線匹配、OFP 產生、黑盒子超速/硬著陸、RAG 知識庫檢索與權威引文合成、多輪 ReAct 軌跡以及 Podman 容器化標準建置檢測：
 
 ```bash
 python -m unittest discover tests
@@ -171,10 +184,10 @@ python -m unittest discover tests
 
 **測試執行結果**：
 ```text
-..............
+.......................
 ----------------------------------------------------------------------
-Ran 14 tests in 0.069s
+Ran 23 tests in 0.170s
 
 OK
 ```
-14 項單元測試 100% 全數通過，展現了強大的工程品質與系統穩定性。
+23 項單元測試（含 9 項 RAG 專項檢索、邊界與端到端測試）100% 全數通過，展現了強大的工程品質與系統穩定性。
