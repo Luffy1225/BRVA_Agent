@@ -36,23 +36,23 @@ cp .env.example .env
 
 ### 2. 使用 Podman 建置映像檔
 ```bash
-podman build -t aeroagent:v1 -f Containerfile .
+podman build -t brva-agent:v1 -f Containerfile .
 ```
 
 ### 3. 執行 Agent（終端機互動模式，推薦評分使用）
 ```bash
-podman run -it --rm --env-file .env aeroagent:v1
+podman run -it --rm --env-file .env brva-agent:v1
 ```
 
 ### 4. 啟動 Streamlit 網頁儀表板模式（選配）
 ```bash
-podman run -d --rm -p 8501:8501 --env-file .env aeroagent:v1 python -m streamlit run src/ui/web.py
+podman run -d --rm -p 8501:8501 --env-file .env brva-agent:v1 python -m streamlit run src/ui/web.py
 # 於瀏覽器開啟 http://localhost:8501
 ```
 
-### 5. 執行自動化測試集
+### 5. 執行自動化測試集（包含容器健康檢查）
 ```bash
-podman run --rm --env-file .env aeroagent:v1 python -m unittest discover tests
+podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
 ```
 
 ---
@@ -163,7 +163,7 @@ podman run --rm --env-file .env aeroagent:v1 python -m unittest discover tests
 
 ## 六、 自動化測試證據 (Verification Evidence)
 
-本專案具備完整的自動化單元測試，涵蓋三角函數計算、航線匹配、OFP 產生、黑盒子超速/硬著陸與多輪 ReAct 軌跡：
+本專案具備完整的自動化單元測試，涵蓋三角函數計算、航線匹配、OFP 產生、黑盒子超速/硬著陸、多輪 ReAct 軌跡以及 Podman 容器化標準建置檢測：
 
 ```bash
 python -m unittest discover tests
@@ -171,10 +171,10 @@ python -m unittest discover tests
 
 **測試執行結果**：
 ```text
-........
+..............
 ----------------------------------------------------------------------
-Ran 8 tests in 0.197s
+Ran 14 tests in 0.069s
 
 OK
 ```
-8 項單元測試 100% 全數通過，展現了強大的工程品質與系統穩定性。
+14 項單元測試 100% 全數通過，展現了強大的工程品質與系統穩定性。
