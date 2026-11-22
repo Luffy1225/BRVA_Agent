@@ -1,3 +1,4 @@
+import re
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -17,6 +18,69 @@ def _format_iso_date(iso_str: Optional[str]) -> str:
         return dt.strftime("%Y-%m-%d %H:%M UTC")
     except Exception:
         return str(iso_str)[:16]
+
+def _clean_and_summarize_markdown(raw_desc: Optional[str], title: str = "", max_chars: int = 90) -> str:
+    """
+    Cleans raw Markdown, Discord custom emojis, channel tags, mentions, and multiline headers.
+    Produces a crisp, single-line human-readable summary that won't break Markdown rendering.
+    """
+    if not raw_desc or not raw_desc.strip():
+        if "ROTW" in title.upper():
+            return "長榮虛擬航空每週精選推薦航線 (ROTW)，歡迎全體機長領取執飛！"
+        return "官方排定活動日程，詳情請參閱 CrewCenter 活動專頁。"
+
+    text = raw_desc.strip()
+
+    # 1. Strip Discord custom emojis <:name:id> and <a:name:id>
+    text = re.sub(r'<a?:\w+:\d+>', '', text)
+
+    # 2. Strip Discord channel/user/role mentions <#123>, <@123>, <@&123>
+    text = re.sub(r'<[@#]&?\d+>', '', text)
+
+    # 3. Strip code blocks and inline code
+    text = re.sub(r'```[\s\S]*?```', '', text)
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+
+    # 4. Strip Markdown images and links ![alt](url) -> "" and [text](url) -> text
+    text = re.sub(r'!\[([^\]]*)\]\([^)]+\)', '', text)
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    text = re.sub(r'https?://\S+', '', text)
+
+    # 5. Strip Markdown headers (# Header), blockquotes (> quote), list bullets
+    text = re.sub(r'^[#>\-\*_\s\d\.]+', '', text, flags=re.MULTILINE)
+
+    # 6. Strip bold/italic/strikethrough markers **bold**, *italic*, ~~strike~~
+    text = re.sub(r'[*_~]{1,3}', '', text)
+
+    # 7. Split into lines, filter out empty lines or repetitive title echoes
+    clean_parts = []
+    title_lower = title.strip().lower()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        # Filter empty or divider lines
+        if not line or set(line).issubset({'-', '=', '*', '#', ':', '|', ' ', '—', '_'}):
+            continue
+        # Skip line if it just repeats the event title
+        if title_lower and (line.lower() == title_lower or line.lower().startswith(title_lower)):
+            continue
+        # Clean trailing colons or bullets
+        line = re.sub(r'^[:\-\*•\s]+', '', line)
+        if line:
+            clean_parts.append(line)
+
+    # Join into a single clean line
+    clean_text = " ｜ ".join(clean_parts).strip()
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+
+    if not clean_text:
+        if "ROTW" in title.upper():
+            return "長榮虛擬航空每週精選推薦航線 (ROTW)，歡迎全體機長領取執飛！"
+        return "官方排定活動日程，詳情請參閱 CrewCenter 活動專頁。"
+
+    if len(clean_text) > max_chars:
+        clean_text = clean_text[:max_chars - 3].rstrip() + "..."
+
+    return clean_text
 
 def query_calendar_events(
     limit: int = 5,
@@ -65,24 +129,25 @@ def query_calendar_events(
 
     for ev in events:
         title = ev.get("title") or "活動通知"
-        desc = ev.get("description") or "無詳細說明"
+        raw_desc = ev.get("description") or ""
+        clean_summary = _clean_and_summarize_markdown(raw_desc, title=title, max_chars=85)
         start_fmt = _format_iso_date(ev.get("startTime"))
         end_fmt = _format_iso_date(ev.get("endTime"))
         author = ev.get("authorName") or "BRVA Staff"
         is_joined = ev.get("is_joined", False)
-        status_tag = " [✅ 您已報名]" if is_joined else ""
+        status_tag = " `[已報名]`" if is_joined else ""
 
         meta = ev.get("metadata") or {}
         is_rotw = meta.get("isROTW") or "ROTW" in title.upper()
         icon = "🌟" if is_rotw else "🛫"
 
-        lines.append(f"{icon} **{title}**{status_tag}")
-        lines.append(f"   • 時間：`{start_fmt}` 至 `{end_fmt}`")
-        lines.append(f"   • 主辦：{author}")
-        if len(desc) > 80:
-            desc = desc[:77] + "..."
-        lines.append(f"   • 摘要：{desc}")
+        lines.append(f"• {icon} **{title}**{status_tag}")
+        lines.append(f"  - 時間：`{start_fmt}` 至 `{end_fmt}`")
+        lines.append(f"  - 主辦：`{author}`")
+        lines.append(f"  - 摘要：{clean_summary}")
         lines.append("")
+
+    lines.append("💡 *提示：點擊側邊欄【🌐 前往 CrewCenter】即可進入活動專頁查看完整航路與詳細簡報。*")
 
     summary_text = "\n".join(lines).strip()
     return {

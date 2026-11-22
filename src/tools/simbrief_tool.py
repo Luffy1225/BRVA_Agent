@@ -97,7 +97,13 @@ def generate_simbrief_dispatch(
             user_token=user_context.delegation_token
         )
 
-        pilot_display = user_context.callsign if (user_context.callsign and user_context.callsign != "N/A") else (user_context.username or "AgenticTesting")
+        # Determine clean pilot display name
+        raw_cs = (user_context.callsign or "").strip()
+        raw_user = (user_context.username or "").strip()
+        if raw_cs and raw_cs.upper() not in ("PILOT", "N/A", "NONE"):
+            pilot_display = raw_cs
+        else:
+            pilot_display = raw_user or "AgenticTesting"
 
         # Case 1: SimBrief OFP plan was generated successfully
         if simbrief_linked and ofp_data:
@@ -150,7 +156,7 @@ def generate_simbrief_dispatch(
                 "summary_text": summary,
             }
 
-        # Case 2: SimBrief is not linked, but CrewCenter active dispatch is registered
+        # Case 2: SimBrief is not linked, but CrewCenter internal dispatch is supported
         is_simbrief_unlinked = False
         if backend_res:
             if backend_res.get("simbriefLinked") is False:
@@ -161,11 +167,12 @@ def generate_simbrief_dispatch(
         if is_simbrief_unlinked or active_res:
             unlinked_msg = (
                 f"長官，目前沒有登錄 SimBrief，因此我目前沒辦法幫您生成 SimBrief 計畫，"
-                f"不過 CrewCenter 內部已經為您完成 Dispatch 了！\n"
-                f"• 執飛航班：{clean_flt}\n"
-                f"• 起訖場站：{clean_dep} ➔ {clean_arr}\n"
-                f"• 機型指派：{clean_type}\n"
-                f"• 執飛飛官：{pilot_display}\n"
+                f"不過 CrewCenter 內部已經為您完成 Dispatch 了！\n\n"
+                f"📋 【內部簽派放行資訊】：\n"
+                f"• 執飛航班：`{clean_flt}`\n"
+                f"• 起訖場站：`{clean_dep} 🛫 ➔ {clean_arr} 🛬`\n"
+                f"• 機型指派：`{clean_type}` 客機\n"
+                f"• 執飛飛官：`{pilot_display}`\n\n"
                 f"您可隨時至 CrewCenter 派遣中心 (Dispatch Center) 查看或領取此航班起飛！"
             )
             return {

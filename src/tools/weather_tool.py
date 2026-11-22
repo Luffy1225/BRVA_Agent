@@ -89,6 +89,7 @@ def fetch_aviation_weather(icao: str, runway: Optional[str] = "16R") -> Dict[str
     is_safe = crosswind <= crosswind_limit
 
     wind_side = "右側" if (wind_dir - rwy_heading) % 360 < 180 else "左側"
+    headwind_label = "逆風" if headwind >= 0 else "順風"
     risk_notes = f"風向 {wind_dir} 度，{runway} 跑道側風分量約 {crosswind} 節（來自{wind_side}），"
     if headwind >= 0:
         risk_notes += f"逆風分量約 {headwind} 節。"
@@ -111,7 +112,9 @@ def fetch_aviation_weather(icao: str, runway: Optional[str] = "16R") -> Dict[str
         "wind_speed_kts": wind_speed,
         "gust_kts": gust,
         "crosswind_kts": crosswind,
+        "crosswind_dir": "右" if "右" in wind_side else "左",
         "headwind_kts": headwind,
+        "headwind_label": headwind_label,
         "is_safe": is_safe,
         "flight_category": "VFR",
         "risk_notes": risk_notes,

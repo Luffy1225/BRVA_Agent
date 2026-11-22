@@ -2,7 +2,7 @@ import os
 import re
 import json
 import random
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from src.config import config
 from src.context import UserContext
 from src.memory import AgentMemory, PendingDispatch
@@ -42,14 +42,20 @@ class BRVAAgent:
     def __init__(
         self,
         memory: Optional[AgentMemory] = None,
-        llm_provider: Optional[BaseLLMProvider] = None
+        llm_provider: Optional[Union[BaseLLMProvider, str]] = None
     ):
         self.memory = memory or AgentMemory()
-        self.llm = llm_provider or get_llm_provider()
+        if isinstance(llm_provider, str):
+            self.llm = get_llm_provider(llm_provider)
+        else:
+            self.llm = llm_provider or get_llm_provider()
 
-    def set_llm_provider(self, llm_provider: BaseLLMProvider):
+    def set_llm_provider(self, llm_provider: Union[BaseLLMProvider, str]):
         """Dynamically switches the active LLM provider during runtime."""
-        self.llm = llm_provider
+        if isinstance(llm_provider, str):
+            self.llm = get_llm_provider(llm_provider)
+        else:
+            self.llm = llm_provider
 
     def _format_crewcenter_offline_response(
         self,
@@ -374,8 +380,17 @@ class BRVAAgent:
         # -------------------------------------------------------------
         # 1H. Live Radar & Aircraft Tracker (即時在空班機與航跡雷達)
         # -------------------------------------------------------------
-        tracker_keywords = ["即時航班", "在空班機", "誰在飛", "雷達", "tracker", "即時班機", "航跡", "radar", "飛機位置", "在線飛機", "飛到哪", "即時位置"]
-        if any(k in user_text.lower() for k in tracker_keywords):
+        tracker_keywords = [
+            "即時航班", "在空班機", "誰在飛", "雷達", "tracker", "即時班機", "航跡", "radar",
+            "飛機位置", "在線飛機", "飛到哪", "即時位置", "線上飛行", "在線飛行", "在線上飛行",
+            "線上班機", "在空飛機", "目前在線", "在線上", "在線上的", "誰在線上", "在空中"
+        ]
+        is_live_flight_query = any(k in user_text.lower() for k in tracker_keywords) or (
+            any(p in user_text for p in ["在線", "線上", "在空", "空中"]) and any(a in user_text for a in ["飛行", "班機", "航班", "長榮", "飛機", "執飛"])
+        ) or (
+            "誰在" in user_text and ("飛" in user_text or "空中" in user_text)
+        )
+        if is_live_flight_query:
             # Extract target callsign or airport
             cs_match = re.search(r'(EVA\s*\d+|BR\s*\d+)', user_text, re.IGNORECASE)
             target_cs = cs_match.group(1).replace(" ", "").upper() if cs_match else None
@@ -564,16 +579,25 @@ class BRVAAgent:
 
             weather = fetch_aviation_weather(target_icao, target_rwy)
 
+            w_dir = weather.get("wind_dir", 0)
+            w_spd = weather.get("wind_speed_kts", 0)
+            cw_kts = weather.get("crosswind_kts", 0.0)
+            cw_dir = weather.get("crosswind_dir") or "側向"
+            hw_kts = abs(weather.get("headwind_kts", 0.0))
+            hw_label = weather.get("headwind_label") or ("逆風" if weather.get("headwind_kts", 0.0) >= 0 else "順風")
+            raw_m = weather.get("raw_metar", "N/A")
+            risk_ass = weather.get("risk_assessment") or weather.get("risk_notes") or "側風適航。"
+
             if verbose:
-                print(f"[📥 Observation] -> {target_icao} 即時氣象取得成功：風向 {weather['wind_dir']}° / {weather['wind_speed_kts']} 節\n")
+                print(f"[📥 Observation] -> {target_icao} 即時氣象取得成功：風向 {w_dir}° / {w_spd} 節\n")
 
             final_resp = (
                 f"報告機長，為您回報 **{target_icao}** 即時機場氣象報告 (METAR)：\n\n"
-                f"• **METAR 原始電報**：`{weather['raw_metar']}`\n"
-                f"• **風向與風速**：{weather['wind_dir']}° / {weather['wind_speed_kts']} 節\n"
-                f"• **跑道 {target_rwy} 側風分量**：{weather['crosswind_kts']} 節（{weather['crosswind_dir']}側風）\n"
-                f"• **跑道逆風/順風分量**：{weather['headwind_kts']} 節（{weather['headwind_label']}）\n"
-                f"• **適航安全評估**：{weather['risk_assessment']}\n\n"
+                f"• **METAR 原始電報**：`{raw_m}`\n"
+                f"• **風向與風速**：{w_dir}° / {w_spd} 節\n"
+                f"• **跑道 {target_rwy} 側風分量**：{cw_kts} 節（{cw_dir}側風）\n"
+                f"• **跑道逆風/順風分量**：{hw_kts} 節（{hw_label}）\n"
+                f"• **適航安全評估**：{risk_ass}\n\n"
                 f"長官若需要安排航班簽派，請隨時指示！"
             )
             self.memory.add_message("assistant", final_resp)

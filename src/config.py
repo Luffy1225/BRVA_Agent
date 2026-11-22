@@ -22,6 +22,44 @@ except ImportError:
                     os.environ.setdefault(k.strip(), v.strip())
 
 
+def load_secret_file() -> None:
+    """
+    Loads secret credentials from sercet.txt or secret.txt if present.
+    Supports API_SERVER, BACKEND_KEY, LLM_API_KEY, OFFICIAL_TEST_TOKEN, etc.
+    """
+    for fname in ("sercet.txt", "secret.txt"):
+        s_path = ROOT_DIR / fname
+        if s_path.exists():
+            try:
+                with open(s_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            k = k.strip()
+                            v = v.strip()
+                            os.environ[k] = v
+                            ku = k.upper()
+                            if ku in ("API_SERVER", "BRVA_API_BASE_URL"):
+                                os.environ["BRVA_API_BASE_URL"] = v
+                            elif ku in ("BACKEND_KEY", "BRVA_AGENT_API_KEY", "X_AGENT_KEY"):
+                                os.environ["BRVA_AGENT_API_KEY"] = v
+                            elif ku in ("LLM_API_KEY", "GEMINI_API_KEY"):
+                                os.environ["GEMINI_API_KEY"] = v
+                            elif ku in ("OFFICIAL_TEST_TOKEN", "TEST_PILOT_TOKEN"):
+                                os.environ["OFFICIAL_TEST_TOKEN"] = v
+                            elif ku in ("TEST_PILOT_USERNAME",):
+                                os.environ["TEST_PILOT_USERNAME"] = v
+                            elif ku in ("TEST_PILOT_PASSWORD",):
+                                os.environ["TEST_PILOT_PASSWORD"] = v
+            except Exception as e:
+                print(f"[Config] Warning loading {fname}: {e}")
+
+
+# Load private secrets from sercet.txt / secret.txt
+load_secret_file()
+
+
 SUPPORTED_PROVIDERS = ["gemini", "ollama", "offline", "auto"]
 SUPPORTED_GEMINI_MODELS = [
     "gemini-3.5-flash-lite",
@@ -66,6 +104,11 @@ class Config:
     BACKEND_TIMEOUT_SECONDS: float = float(os.getenv("BACKEND_TIMEOUT_SECONDS", "5.0"))
     FALLBACK_TO_LOCAL: bool = os.getenv("FALLBACK_TO_LOCAL", "true").lower() in ("true", "1", "yes")
 
+    # Official Test Pilot & Credentials (loaded from sercet.txt or env)
+    OFFICIAL_TEST_TOKEN: str = os.getenv("OFFICIAL_TEST_TOKEN", "")
+    TEST_PILOT_USERNAME: str = os.getenv("TEST_PILOT_USERNAME", "")
+    TEST_PILOT_PASSWORD: str = os.getenv("TEST_PILOT_PASSWORD", "")
+
     # Local Data Files
     LOCAL_ROUTES_FILE: Path = DATA_DIR / "local_fallback_routes.csv"
     SAMPLE_PASS_FILE: Path = DATA_DIR / "sample_flight_pass.csv"
@@ -73,6 +116,7 @@ class Config:
 
     def refresh(self):
         """Reload attributes from environment variables."""
+        load_secret_file()
         self.LLM_PROVIDER = os.getenv("LLM_PROVIDER", "auto").lower()
         self.OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         self.OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
@@ -81,6 +125,9 @@ class Config:
         self.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
         self.BRVA_API_BASE_URL = clean_api_url(os.getenv("BRVA_API_BASE_URL", "https://api.eva-virtual.com"))
         self.BRVA_AGENT_API_KEY = os.getenv("BRVA_AGENT_API_KEY", "")
+        self.OFFICIAL_TEST_TOKEN = os.getenv("OFFICIAL_TEST_TOKEN", "")
+        self.TEST_PILOT_USERNAME = os.getenv("TEST_PILOT_USERNAME", "")
+        self.TEST_PILOT_PASSWORD = os.getenv("TEST_PILOT_PASSWORD", "")
         self.BACKEND_TIMEOUT_SECONDS = float(os.getenv("BACKEND_TIMEOUT_SECONDS", "5.0"))
         self.FALLBACK_TO_LOCAL = os.getenv("FALLBACK_TO_LOCAL", "true").lower() in ("true", "1", "yes")
 
@@ -100,10 +147,10 @@ def mask_secret(val: Optional[str], prefix_len: int = 4, suffix_len: int = 4) ->
     return f"{s[:prefix_len]}...{s[-suffix_len:]}"
 
 
-def update_runtime_config(updates: Dict[str, Any], persist_to_env: bool = False) -> None:
+def update_runtime_config(updates: Dict[str, Any], persist_to_env: bool = False, persist_to_secret: bool = False) -> None:
     """
     Updates runtime environment variables and config object.
-    Optionally persists updates to the .env file.
+    Optionally persists updates to the .env file or sercet.txt.
     """
     for k, v in updates.items():
         val_str = str(v)
@@ -121,6 +168,9 @@ def update_runtime_config(updates: Dict[str, Any], persist_to_env: bool = False)
     if persist_to_env:
         save_config_to_env(updates)
 
+    if persist_to_secret:
+        save_config_to_secret_file(updates)
+
     # Synchronize backend client if initialized
     try:
         from src.client import backend_client
@@ -130,6 +180,51 @@ def update_runtime_config(updates: Dict[str, Any], persist_to_env: bool = False)
         )
     except Exception:
         pass
+
+
+def save_config_to_secret_file(updates: Dict[str, Any]) -> bool:
+    """
+    Persists configuration parameters into sercet.txt and secret.txt if they exist.
+    """
+    written_any = False
+    for fname in ("sercet.txt", "secret.txt"):
+        s_file = ROOT_DIR / fname
+        if not s_file.exists():
+            continue
+        try:
+            with open(s_file, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            new_lines = []
+            updated_keys = set()
+            for line in lines:
+                trimmed = line.strip()
+                if trimmed and not trimmed.startswith("#") and "=" in trimmed:
+                    k, _ = trimmed.split("=", 1)
+                    k = k.strip()
+                    ku = k.upper()
+                    matched_val = None
+                    if ku in ("API_SERVER", "BRVA_API_BASE_URL") and "BRVA_API_BASE_URL" in updates:
+                        matched_val = updates["BRVA_API_BASE_URL"]
+                    elif ku in ("BACKEND_KEY", "BRVA_AGENT_API_KEY", "X_AGENT_KEY") and "BRVA_AGENT_API_KEY" in updates:
+                        matched_val = updates["BRVA_AGENT_API_KEY"]
+                    elif ku in ("LLM_API_KEY", "GEMINI_API_KEY") and "GEMINI_API_KEY" in updates:
+                        matched_val = updates["GEMINI_API_KEY"]
+                    elif ku in ("OFFICIAL_TEST_TOKEN", "TEST_PILOT_TOKEN") and "OFFICIAL_TEST_TOKEN" in updates:
+                        matched_val = updates["OFFICIAL_TEST_TOKEN"]
+                    elif k in updates:
+                        matched_val = updates[k]
+
+                    if matched_val is not None:
+                        new_lines.append(f"{k}={matched_val}\n")
+                        updated_keys.add(k)
+                        continue
+                new_lines.append(line)
+            with open(s_file, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+            written_any = True
+        except Exception as e:
+            print(f"[Config] Warning saving {fname}: {e}")
+    return written_any
 
 
 def save_config_to_env(updates: Dict[str, Any]) -> bool:

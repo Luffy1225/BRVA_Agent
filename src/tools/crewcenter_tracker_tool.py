@@ -170,8 +170,8 @@ def query_live_radar_and_tracker(
             dep = plan.get("departure") or plan.get("origin") or "RCTP"
             arr = plan.get("destination") or "RJAA"
 
-            lines.append(f"✈️ **{cs}** ({pilot}) ── `{dep} 🛫 ➡️ {arr} 🛬`")
-            lines.append(f"   • 機型：{ac} | 高度：`FL{int(alt/100):03d}` ({alt:,} ft) | 航速：`{spd}` kts")
+            lines.append(f"• ✈️ **{cs}** ({pilot}) ── `{dep} 🛫 ➡️ {arr} 🛬`")
+            lines.append(f"  - 機型：{ac} ｜ 高度：`FL{int(alt/100):03d}` ({alt:,} ft) ｜ 航速：`{spd}` kts")
 
     lines.append("")
     lines.append("🔗 **即時航跡雷達儀表板 (Live Radar)**：https://crewcenter.eva-virtual.com/radar")

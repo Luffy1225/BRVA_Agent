@@ -119,7 +119,7 @@ def query_leaderboard(
                 pts = u.get("points") or 0
                 val_str = f"`{pts:,.0f} pts`"
 
-        text_lines.append(f"{rank_badge} {pilot_tag} ── {val_str}")
+        text_lines.append(f"• {rank_badge} {pilot_tag} ── {val_str}")
 
     # Add My Rank position if authenticated
     if my_rank_data and my_rank_data.get("rankDisplay") and my_rank_data.get("rankDisplay") != "-":
