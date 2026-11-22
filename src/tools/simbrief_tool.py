@@ -103,7 +103,7 @@ def generate_simbrief_dispatch(
         if raw_cs and raw_cs.upper() not in ("PILOT", "N/A", "NONE"):
             pilot_display = raw_cs
         else:
-            pilot_display = raw_user or "AgenticTesting"
+            pilot_display = raw_user or config.TEST_PILOT_USERNAME or "Pilot"
 
         # Case 1: SimBrief OFP plan was generated successfully
         if simbrief_linked and ofp_data:

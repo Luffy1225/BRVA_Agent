@@ -49,6 +49,60 @@ class BRVAAgent:
             self.llm = get_llm_provider(llm_provider)
         else:
             self.llm = llm_provider or get_llm_provider()
+        self.last_trace: List[Dict[str, Any]] = []
+        self.current_trace: List[Dict[str, Any]] = []
+        self._verbose: bool = True
+
+    def _reset_trace(self, verbose: bool = True):
+        self._verbose = verbose
+        self.current_trace = []
+
+    def _add_trace_thought(self, title: str, content: str = ""):
+        step = {
+            "type": "thought",
+            "title": title,
+            "content": content or title,
+        }
+        self.current_trace.append(step)
+        if self._verbose:
+            print(f"\n[🤖 Agent 決策] {title}")
+
+    def _add_trace_tool_call(self, tool_name: str, call_repr: str, args: Optional[Dict[str, Any]] = None):
+        step = {
+            "type": "tool_call",
+            "tool": tool_name,
+            "title": f"調用 {tool_name}",
+            "content": call_repr,
+            "args": args or {}
+        }
+        self.current_trace.append(step)
+        if self._verbose:
+            print(f"[🔍 Tool Call] -> {call_repr}")
+
+    def _add_trace_observation(self, summary: str, data: Optional[Any] = None):
+        step = {
+            "type": "observation",
+            "title": "工具執行觀察",
+            "content": summary
+        }
+        self.current_trace.append(step)
+        if self._verbose:
+            print(f"[📥 Observation] -> {summary}\n")
+
+    def get_last_trace(self) -> List[Dict[str, Any]]:
+        """Returns the step trace of the last executed run."""
+        return list(self.last_trace)
+
+    def _finish_run(
+        self,
+        final_resp: str,
+        return_trace: bool = False
+    ) -> Union[str, tuple[str, List[Dict[str, Any]]]]:
+        self.last_trace = list(self.current_trace)
+        self.memory.add_message("assistant", final_resp)
+        if return_trace:
+            return final_resp, self.last_trace
+        return final_resp
 
     def set_llm_provider(self, llm_provider: Union[BaseLLMProvider, str]):
         """Dynamically switches the active LLM provider during runtime."""
@@ -115,11 +169,19 @@ class BRVAAgent:
         ]
         return random.choice(offline_copilot_phrases)
 
-    def run(self, user_input: str, user_context: Optional[UserContext] = None, verbose: bool = True) -> str:
+    def run(
+        self,
+        user_input: str,
+        user_context: Optional[UserContext] = None,
+        verbose: bool = True,
+        return_trace: bool = False
+    ) -> Union[str, tuple[str, List[Dict[str, Any]]]]:
         """
         Processes user query using ReAct loop and Human-in-the-Loop memory tracking.
         Supports pilot user_context for delegation and personal actions.
+        Collects detailed step trace (thinking, tool calls, observations) for collapsible UI.
         """
+        self._reset_trace(verbose=verbose)
         user_text = user_input.strip()
         self.memory.add_message("user", user_text)
 
@@ -128,6 +190,8 @@ class BRVAAgent:
         # -------------------------------------------------------------
         if any(w in user_text for w in ["切換測試飛官", "體驗飛官", "一鍵登入", "登入測試飛官", "載入測試飛官", "demo pilot"]):
             official_demo_token = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI4ODg4MTc5NTM2MDg2ODc2NDEwIiwidHlwZSI6ImRlbGVnYXRpb24iLCJzY29wZXMiOlsiZGlzcGF0Y2giLCJwcm9maWxlOnJlYWQiLCJzdG9yZTpyZWFkIiwicm91dGVzIl0sInRva2VuVmVyc2lvbiI6MSwiaWF0IjoxNzk1MzY5NTMxfQ.7pB5-bHLE2WmNElbwvGIczOJs6LenQTBvL2Rpbu3Kwk"
+            self._add_trace_thought("測試飛官一鍵切換", "偵測到測試飛官切換請求，向後端授權 API 驗證官方示範 Token...")
+            self._add_trace_tool_call("backend_client.verify_token", f"backend_client.verify_token(token='{official_demo_token[:18]}...')")
             from src.client import backend_client
             val_res = backend_client.verify_token(official_demo_token)
             if val_res and val_res.get("valid") and val_res.get("user"):
@@ -142,6 +206,8 @@ class BRVAAgent:
                     user_context.flight_time_hours = float(u.get("flightTimeHours") or 0)
                     user_context.delegation_token = official_demo_token
                     user_context.scopes = u.get("scopes") or ["dispatch", "profile:read", "store:read", "routes"]
+                self._add_trace_observation(f"Token 驗證成功！飛官姓名：{u.get('username')}，呼號：{u.get('callsign')}，階級：{u.get('rankName')}，點數：{u.get('points')} pts")
+                self._add_trace_thought("使用者上下文更新", "已成功將飛官資訊寫入 UserContext，授權模式激活。")
                 resp = (
                     f"👨‍✈️ **已為您一鍵切換至官方測試飛官身分！**\n\n"
                     f"• 呼號：`{getattr(user_context, 'callsign', u.get('callsign'))}`\n"
@@ -152,18 +218,19 @@ class BRVAAgent:
                     f"• 狀態：🟢 已自伺服器成功讀取真實飛官資料\n\n"
                     f"現在您可以自由測試『查我的點數』、『簽派放行』、『查看個人背包』等個人化功能！"
                 )
-                self.memory.add_message("assistant", resp)
-                return resp
+                return self._finish_run(resp, return_trace)
             else:
                 err_msg = val_res.get("error") if val_res else "無法連線至後端伺服器"
+                self._add_trace_observation(f"⚠️ Token 驗證失敗：{err_msg}")
                 resp = f"⚠️ 無法取得測試飛官身分：{err_msg}。請確認後端 API 伺服器是否正常運行。"
-                self.memory.add_message("assistant", resp)
-                return resp
+                return self._finish_run(resp, return_trace)
 
         import re
         link_match = re.search(r"(?:連結飛官|登入飛官|綁定飛官|token\s*[:：])\s*([a-zA-Z0-9_\-\.]+)", user_text, re.IGNORECASE)
         if link_match:
             raw_token = link_match.group(1).strip()
+            self._add_trace_thought("飛官個人 Token 驗證", "解析使用者提供之 Token，向後端授權伺服器驗證身分...")
+            self._add_trace_tool_call("backend_client.verify_token", f"backend_client.verify_token(token='{raw_token[:18]}...')")
             from src.client import backend_client
             val_res = backend_client.verify_token(raw_token)
             if val_res and val_res.get("valid") and val_res.get("user"):
@@ -178,6 +245,8 @@ class BRVAAgent:
                     user_context.flight_time_hours = float(u.get("flightTimeHours") or 0)
                     user_context.delegation_token = raw_token
                     user_context.scopes = u.get("scopes") or []
+                self._add_trace_observation(f"驗證通過！呼號：{u.get('callsign')}，姓名：{u.get('username')}，階級：{u.get('rankName')}")
+                self._add_trace_thought("使用者上下文更新", "飛官授權成功，個人化操作已解鎖。")
                 resp = (
                     f"👨‍✈️ **飛官身分連結成功！歡迎登機，{u.get('callsign')} 機長。**\n\n"
                     f"• 階級：`{u.get('rankName')}`\n"
@@ -185,12 +254,11 @@ class BRVAAgent:
                     f"• 總飛行時數：`{float(u.get('flightTimeHours') or 0):,.1f} h`\n\n"
                     f"BRVA Agent 隨時聽候您的指示！"
                 )
-                self.memory.add_message("assistant", resp)
-                return resp
+                return self._finish_run(resp, return_trace)
             else:
+                self._add_trace_observation("⚠️ 授權碼無效、已過期或伺服器連線失敗。")
                 resp = "⚠️ 抱歉長官，此授權碼無效、已過期或無法連線驗證。請確認後再試，或在側邊欄點選【⚡ 一鍵體驗飛官身分】直接進行測試！"
-                self.memory.add_message("assistant", resp)
-                return resp
+                return self._finish_run(resp, return_trace)
 
         # -------------------------------------------------------------
         # 1. Human-in-the-Loop (HITL) Pending Dispatch Check
@@ -204,9 +272,14 @@ class BRVAAgent:
         )
 
         if pending and not is_question and (is_explicit_dispatch or is_short_affirmative):
-            if verbose:
-                print("\n[🤖 Agent 決策] 偵測到機師確認簽派授權！自 Memory 提取待簽派班次參數...")
-                print(f"[🔍 Tool Call] -> generate_simbrief_dispatch(flight_number='{pending.flight_number}', dep_icao='{pending.dep_icao}', arr_icao='{pending.arr_icao}', aircraft_type='{pending.aircraft_type}')")
+            self._add_trace_thought(
+                "人機協同授權 (HITL)",
+                f"偵測到機師確認簽派授權！自 Agent Memory 提取待簽派班次：{pending.flight_number} ({pending.dep_icao} 🛫 ➡️ {pending.arr_icao} 🛬, 機型: {pending.aircraft_type})"
+            )
+            self._add_trace_tool_call(
+                "generate_simbrief_dispatch",
+                f"generate_simbrief_dispatch(flight_number='{pending.flight_number}', dep_icao='{pending.dep_icao}', arr_icao='{pending.arr_icao}', aircraft_type='{pending.aircraft_type}')"
+            )
 
             ofp_result = generate_simbrief_dispatch(
                 flight_number=pending.flight_number,
@@ -217,36 +290,28 @@ class BRVAAgent:
             )
 
             if ofp_result.get("status") == "CREWCENTER_OFFLINE":
-                if verbose:
-                    print(f"[📥 Observation] -> ⚠️ 簽派中斷：CrewCenter 主機離線或連線逾時\n")
+                self._add_trace_observation("⚠️ 簽派中斷：CrewCenter 主機離線或連線逾時")
                 final_resp = self._format_crewcenter_offline_response("Simbrief 航網簽派放行", user_text, ofp_result.get("summary"))
-                self.memory.add_message("assistant", final_resp)
-                return final_resp
+                return self._finish_run(final_resp, return_trace)
 
             if ofp_result.get("status") == "SIMBRIEF_NOT_LINKED":
-                if verbose:
-                    print(f"[📥 Observation] -> ⚠️ 簽派中斷：飛行員尚未於 BRVA 簽派中心綁定 SimBrief 帳號\n")
+                self._add_trace_observation("⚠️ 簽派中斷：飛行員尚未於 BRVA 簽派中心綁定 SimBrief 帳號")
                 final_resp = ofp_result.get("summary")
-                self.memory.add_message("assistant", final_resp)
-                return final_resp
+                return self._finish_run(final_resp, return_trace)
 
             if ofp_result.get("status") == "UNAUTHENTICATED":
-                if verbose:
-                    print(f"[📥 Observation] -> ⚠️ 授權中斷：尚未連結 CrewCenter 飛官個人帳號\n")
+                self._add_trace_observation("⚠️ 授權中斷：尚未連結 CrewCenter 飛官個人帳號")
                 final_resp = ofp_result.get("summary")
-                self.memory.add_message("assistant", final_resp)
-                return final_resp
+                return self._finish_run(final_resp, return_trace)
 
-            if verbose:
-                print(f"[📥 Observation] -> OFP 產出成功！巡航高度 {ofp_result.get('cruise_altitude') or ofp_result.get('cruise_alt')}，Block Fuel {ofp_result.get('block_fuel_kgs')} kg\n")
-
+            self._add_trace_observation(f"OFP 產出成功！巡航高度 {ofp_result.get('cruise_altitude') or ofp_result.get('cruise_alt')}，Block Fuel {ofp_result.get('block_fuel_kgs')} kg")
+            self._add_trace_thought("簽派核准完成", "清除 Agent Memory 待簽派狀態，發布 Happy Landings 祝福與放行指示。")
             self.memory.clear_pending()
             final_resp = (
                 f"{ofp_result['summary']}\n\n"
                 f"祝機長本次飛行平安順利，Happy Landings！"
             )
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 1B. Direct Pilot Profile & Stats Query Check
@@ -263,34 +328,34 @@ class BRVAAgent:
             elif any(k in user_text for k in ["數據", "統計", "營運", "接地"]):
                 query_type = "stats"
 
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為飛官個人資料與積分查詢 (類型: {query_type})...")
-                print(f"[🔍 Tool Call] -> query_pilot_profile(query_type='{query_type}')")
+            self._add_trace_thought("飛官個人數據檢索", f"識別為飛官個人資料與積分查詢 (查詢類型: {query_type})，檢查授權狀態並檢索資料庫")
+            self._add_trace_tool_call("query_pilot_profile", f"query_pilot_profile(query_type='{query_type}')")
 
             res = query_pilot_profile(query_type=query_type, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 伺服器離線或連線逾時")
                 final_resp = self._format_crewcenter_offline_response("飛官個人檔案與數據查詢", user_text, res.get("summary"))
             else:
+                self._add_trace_observation(f"飛官數據取得完畢 (呼號: {res.get('callsign')}, 點數: {res.get('points')} pts, 時數: {res.get('flight_time_hours')} h)")
                 final_resp = res.get("summary") or res.get("summary_text", "")
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 1C. Store Catalog Query Check (Strictly Read-Only, No Purchase)
         # -------------------------------------------------------------
         store_keywords = ["商城", "商店", "商品目錄", "商品列表", "架上有什麼", "有賣什麼", "我想買", "幫我買"]
         if any(k in user_text for k in store_keywords):
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為 CrewCenter 商城目錄與點數餘額查詢 (嚴格唯讀)...")
-                print(f"[🔍 Tool Call] -> query_store_catalog()")
+            self._add_trace_thought("CrewCenter 飛官商城查詢", "識別為 CrewCenter 商城目錄與點數餘額查詢 (嚴格唯讀防護，無購買扣點權限)")
+            self._add_trace_tool_call("query_store_catalog", "query_store_catalog()")
 
             res = query_store_catalog(user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 商城資料庫連線逾時")
                 final_resp = self._format_crewcenter_offline_response("商城商品目錄查詢", user_text, res.get("summary"))
             else:
+                self._add_trace_observation(f"已取得商城架上商品清單 ({len(res.get('items', []))} 件商品) 與點數餘額 ({res.get('points', 0)} pts)")
                 final_resp = res.get("summary") or res.get("summary_text", "")
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 1D. CrewCenter Leaderboard Query (排行榜)
@@ -314,68 +379,68 @@ class BRVAAgent:
             elif "30天" in user_text or "本月" in user_text:
                 days = "30"
 
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為 CrewCenter 排行榜查詢 (類別: {cat}, 排序: {sort_by}, 週期: {days})...")
-                print(f"[🔍 Tool Call] -> query_leaderboard(category='{cat}', sort_by='{sort_by}', days='{days}')")
+            self._add_trace_thought("CrewCenter 榮譽榜查詢", f"識別為排行榜查詢 (類別: {cat}, 排序維度: {sort_by}, 統計週期: {days})")
+            self._add_trace_tool_call("query_leaderboard", f"query_leaderboard(category='{cat}', sort_by='{sort_by}', days='{days}')")
 
             res = query_leaderboard(category=cat, sort_by=sort_by, days=days, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 排行榜資料庫連線逾時")
                 final_resp = self._format_crewcenter_offline_response("CrewCenter 排行榜數據查詢", user_text, res.get("summary"))
             else:
+                self._add_trace_observation(f"成功取得前 {len(res.get('leaderboard', []))} 名榮譽榜資料")
                 final_resp = res.get("summary") or res.get("summary_text", "")
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 1E. CrewCenter Calendar & Events & ROTW (行事曆與官方活動)
         # -------------------------------------------------------------
         calendar_keywords = ["行事曆", "官方活動", "大聯飛", "近期活動", "rotw", "每週精選", "日程", "calendar", "活動列表"]
         if any(k in user_text.lower() for k in calendar_keywords):
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為 CrewCenter 官方活動與行事曆日程查詢...")
-                print(f"[🔍 Tool Call] -> query_calendar_events(limit=5, include_rotw=True)")
+            self._add_trace_thought("官方活動日程查詢", "識別為 CrewCenter 官方活動日程與每週精選航線 (ROTW) 查詢")
+            self._add_trace_tool_call("query_calendar_events", "query_calendar_events(limit=5, include_rotw=True)")
 
             res = query_calendar_events(limit=5, include_rotw=True, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 行事曆伺服器連線逾時")
                 final_resp = self._format_crewcenter_offline_response("官方活動行事曆與每週航線查詢", user_text, res.get("summary"))
             else:
+                self._add_trace_observation(f"取得近期活動資料 ({res.get('events_count', 0)} 筆)，包含大聯飛與每週精選航線")
                 final_resp = res.get("summary") or res.get("summary_text", "")
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 1F. Pilot Inventory & Bag Query (背包與道具 - 嚴格唯讀)
         # -------------------------------------------------------------
         inventory_keywords = ["背包", "我的道具", "我有甚麼道具", "我有什麼道具", "道具庫", "持有道具", "我有幾張券", "包機券", "通行證", "大聲公道具", "inventory"]
         if any(k in user_text for k in inventory_keywords):
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為飛官個人背包與道具庫查詢 (嚴格唯讀)...")
-                print(f"[🔍 Tool Call] -> query_pilot_inventory()")
+            self._add_trace_thought("飛官背包道具查詢", "識別為飛官個人背包與道具庫查詢 (嚴格唯讀，安全防護)")
+            self._add_trace_tool_call("query_pilot_inventory", "query_pilot_inventory()")
 
             res = query_pilot_inventory(user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 背包資料庫連線逾時")
                 final_resp = self._format_crewcenter_offline_response("個人背包道具庫查詢", user_text, res.get("summary"))
             else:
+                self._add_trace_observation(f"取得背包道具清單 (持有 {len(res.get('inventory', []))} 項道具/特許卡)")
                 final_resp = res.get("summary") or res.get("summary_text", "")
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 1G. Media Gallery (影音藝廊)
         # -------------------------------------------------------------
         gallery_keywords = ["藝廊", "畫廊", "照片", "精選照片", "截圖", "gallery", "機師照片", "投稿"]
         if any(k in user_text.lower() for k in gallery_keywords):
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為 CrewCenter 影音藝廊精選作品查詢...")
-                print(f"[🔍 Tool Call] -> query_media_gallery(limit=5)")
+            self._add_trace_thought("影音藝廊精選查詢", "識別為 CrewCenter 影音藝廊精選飛官作品查詢")
+            self._add_trace_tool_call("query_media_gallery", "query_media_gallery(limit=5)")
 
             res = query_media_gallery(limit=5, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 藝廊伺服器連線逾時")
                 final_resp = self._format_crewcenter_offline_response("影音藝廊精選作品查詢", user_text, res.get("summary"))
             else:
+                self._add_trace_observation(f"取得藝廊精選作品清單 ({res.get('photos_count', 0)} 張照片)")
                 final_resp = res.get("summary") or res.get("summary_text", "")
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 1H. Live Radar & Aircraft Tracker (即時在空班機與航跡雷達)
@@ -401,48 +466,48 @@ class BRVAAgent:
                     target_icao = code
                     break
 
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為航跡雷達與在空班機追蹤 (呼號: {target_cs}, 機場: {target_icao})...")
-                print(f"[🔍 Tool Call] -> query_live_radar_and_tracker(callsign={target_cs}, icao={target_icao})")
+            self._add_trace_thought("即時航跡雷達追蹤", f"識別為在空班機追蹤 (指定呼號: {target_cs or '全部'}, 指定機場: {target_icao or '全球'})")
+            self._add_trace_tool_call("query_live_radar_and_tracker", f"query_live_radar_and_tracker(callsign={repr(target_cs)}, icao={repr(target_icao)})")
 
             res = query_live_radar_and_tracker(callsign=target_cs, icao=target_icao, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 航跡雷達伺服器連線逾時")
                 final_resp = self._format_crewcenter_offline_response("即時航跡雷達與在空班機追蹤", user_text, res.get("summary"))
             else:
+                self._add_trace_observation(f"取得即時雷達航跡資料 (線上在空班機: {res.get('flights_count', 0)} 架)")
                 final_resp = res.get("summary") or res.get("summary_text", "")
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 1I. Pilot PIREP History & Active Dispatch Query
         # -------------------------------------------------------------
         pirep_keywords = ["飛行紀錄", "飛行報告", "pirep", "歷史飛行", "最近執飛", "上次降落", "接地紀錄", "最近飛了什麼"]
         if any(k in user_text.lower() for k in pirep_keywords):
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為個人飛行報告 (PIREP) 歷史紀錄查詢...")
-                print(f"[🔍 Tool Call] -> query_pilot_pireps(limit=5)")
+            self._add_trace_thought("個人飛行紀錄查詢", "識別為個人歷史飛行報告 (PIREP) 與落地降落率紀錄查詢")
+            self._add_trace_tool_call("query_pilot_pireps", "query_pilot_pireps(limit=5)")
 
             res = query_pilot_pireps(limit=5, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ PIREP 資料庫連線逾時")
                 final_resp = self._format_crewcenter_offline_response("個人飛行報告歷史紀錄查詢", user_text, res.get("summary"))
             else:
+                self._add_trace_observation(f"取得近期 PIREP 報告 ({len(res.get('pireps', []))} 筆)")
                 final_resp = res.get("summary") or res.get("summary_text", "")
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         active_disp_keywords = ["當前簽派", "目前簽派", "現在簽派", "我的簽派", "有沒有簽派", "放行單狀態"]
         if any(k in user_text for k in active_disp_keywords):
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為當前有效簽派放行狀態查詢...")
-                print(f"[🔍 Tool Call] -> query_active_dispatch()")
+            self._add_trace_thought("當前簽派放行單查詢", "識別為當前已核發放行單有效性查詢")
+            self._add_trace_tool_call("query_active_dispatch", "query_active_dispatch()")
 
             res = query_active_dispatch(user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 簽派中心連線逾時")
                 final_resp = self._format_crewcenter_offline_response("當前有效簽派放行狀態查詢", user_text, res.get("summary"))
             else:
+                self._add_trace_observation(f"取得放行單狀態 (狀態: {res.get('status')})")
                 final_resp = res.get("summary") or res.get("summary_text", "")
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 1J. Direct Flight Dispatch Check (e.g. 幫我簽派 BR184, 簽派 BR184)
@@ -465,9 +530,8 @@ class BRVAAgent:
             elif "12" in matched_flt:
                 dep, arr = "RCTP", "KLAX"
 
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為明確指定航班簽派請求: {matched_flt} ({dep} -> {arr})...")
-                print(f"[🔍 Tool Call] -> generate_simbrief_dispatch(flight_number='{matched_flt}', dep_icao='{dep}', arr_icao='{arr}')")
+            self._add_trace_thought("指定航班直接簽派", f"識別為明確指定航班簽派請求: {matched_flt} ({dep} -> {arr})，機型: B78X")
+            self._add_trace_tool_call("generate_simbrief_dispatch", f"generate_simbrief_dispatch(flight_number='{matched_flt}', dep_icao='{dep}', arr_icao='{arr}', aircraft_type='B78X')")
 
             ofp_result = generate_simbrief_dispatch(
                 flight_number=matched_flt,
@@ -477,16 +541,18 @@ class BRVAAgent:
                 user_context=user_context
             )
             if ofp_result.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 簽派中斷：CrewCenter 伺服器連線逾時")
                 final_resp = self._format_crewcenter_offline_response("航班放行單簽派", user_text, ofp_result.get("summary"))
             else:
+                self._add_trace_observation(f"簽派處理完畢 (狀態: {ofp_result.get('status')})")
                 final_resp = ofp_result.get("summary") or ofp_result.get("summary_text", "")
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 1K. Greetings Check
         # -------------------------------------------------------------
         if any(user_text.lower().startswith(g) or user_text.lower() == g for g in ["你好", "您好", "哈囉", "hello", "hi", "早安", "午安", "晚安"]) and not any(k in user_text for k in ["手冊", "規章", "查", "簽派", "天氣", "sop"]):
+            self._add_trace_thought("民航副駕駛登機報到", "偵測到座艙問候語，提供長榮簽派副駕指引與核心功能快速提示。")
             greeting_resp = (
                 "機長您好！我是您的 AI 簽派副駕與考核助理。請問今天需要為您查詢航線、解析目的地天氣，還是審查飛行黑盒子紀錄？\n\n"
                 "您可以隨時告訴我具體需求，例如：\n"
@@ -496,8 +562,7 @@ class BRVAAgent:
                 "• 📡 航跡雷達：「查看即時在空班機」\n"
                 "• 🛫 簽派規劃：「我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)」"
             )
-            self.memory.add_message("assistant", greeting_resp)
-            return greeting_resp
+            return self._finish_run(greeting_resp, return_trace)
 
         # -------------------------------------------------------------
         # 2. Telemetry Audit Request Check
@@ -509,21 +574,18 @@ class BRVAAgent:
                 if token.lower().endswith(".csv"):
                     csv_target = token
 
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為黑盒子時序遙測稽核任務，呼叫確定性時序檢測工具...")
-                print(f"[🔍 Tool Call] -> analyze_flight_telemetry(file_path='{csv_target}')")
+            self._add_trace_thought("黑盒子時序遙測稽核", f"識別為黑盒子時序遙測紀錄審查 (檔案: {csv_target})，呼叫確定性時序演算法進行超速與接地 G 值分析")
+            self._add_trace_tool_call("analyze_flight_telemetry", f"analyze_flight_telemetry(file_path='{csv_target}')")
 
             telemetry_res = analyze_flight_telemetry(csv_target)
 
-            if verbose:
-                print(f"[📥 Observation] -> 審查完成！得分 {telemetry_res.get('score')} 分，違規項 {len(telemetry_res.get('violations', []))} 件\n")
+            self._add_trace_observation(f"審查完成！得分 {telemetry_res.get('score')} 分，違規項 {len(telemetry_res.get('violations', []))} 件")
 
             final_resp = (
                 f"報告教官/機師，黑盒子飛行紀錄 ({csv_target}) 審查完畢：\n\n"
                 f"{telemetry_res['summary']}"
             )
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 3. RAG Knowledge Base Query (SOP, Live Rules, Practical Exam)
@@ -536,14 +598,12 @@ class BRVAAgent:
             "機隊", "預約", "墜機", "通報", "事故", "wait landing", "冷卻期", "通聯", "呼號"
         ]
         if any(k in user_text.lower() for k in rag_keywords):
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為長榮航規或實作考核諮詢，檢索官方規章 RAG 向量知識庫...")
-                print(f"[🔍 Tool Call] -> query_flight_sop_and_regulations(query='{user_text}')")
+            self._add_trace_thought("官方規章知識庫檢索 (RAG)", f"識別為長榮航規或實作考核諮詢，檢索官方規章 RAG 向量知識庫 (查詢: '{user_text}')")
+            self._add_trace_tool_call("query_flight_sop_and_regulations", f"query_flight_sop_and_regulations(query='{user_text}')")
 
             rag_res = query_flight_sop_and_regulations(user_text)
 
-            if verbose:
-                print(f"[📥 Observation] -> 知識庫命中 {len(rag_res.get('matched_documents', []))} 份官方文件 (來源: {rag_res.get('sources')})\n")
+            self._add_trace_observation(f"知識庫命中 {len(rag_res.get('matched_documents', []))} 份官方文件 (來源: {rag_res.get('sources')})")
 
             ans_text = rag_res.get("direct_answer") or rag_res.get("answer") or ""
             chunks = rag_res.get("top_chunks", [])
@@ -555,8 +615,7 @@ class BRVAAgent:
             for c in chunks:
                 final_resp += f"• **《長榮虛擬航空 {c.get('source', '')} · {c.get('section', '')}》**：{c.get('title', '')}\n"
 
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 4. Pure Aviation Weather Request Check (e.g. 查 RCTP 天氣)
@@ -573,9 +632,8 @@ class BRVAAgent:
             rwy_match = re.search(r'(\d{2}[LRC]?)\s*跑道|跑道\s*(\d{2}[LRC]?)', user_text, re.IGNORECASE)
             target_rwy = (rwy_match.group(1) or rwy_match.group(2)).upper() if rwy_match else "05L"
 
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 識別為純氣象通聯查詢: 機場 {target_icao}，跑道 {target_rwy}...")
-                print(f"[🔍 Tool Call] -> fetch_aviation_weather(icao='{target_icao}', runway='{target_rwy}')")
+            self._add_trace_thought("機場氣象與跑道分量解析", f"識別為純氣象通聯查詢: 機場 {target_icao}，跑道 {target_rwy}，計算幾何側風與逆風分量")
+            self._add_trace_tool_call("fetch_aviation_weather", f"fetch_aviation_weather(icao='{target_icao}', runway='{target_rwy}')")
 
             weather = fetch_aviation_weather(target_icao, target_rwy)
 
@@ -588,8 +646,8 @@ class BRVAAgent:
             raw_m = weather.get("raw_metar", "N/A")
             risk_ass = weather.get("risk_assessment") or weather.get("risk_notes") or "側風適航。"
 
-            if verbose:
-                print(f"[📥 Observation] -> {target_icao} 即時氣象取得成功：風向 {w_dir}° / {w_spd} 節\n")
+            self._add_trace_observation(f"{target_icao} 即時氣象取得成功：風向 {w_dir}° / {w_spd} 節，跑道 {target_rwy} 側風分量 {cw_kts} 節（{cw_dir}側風），逆風 {hw_kts} 節（{hw_label}）")
+            self._add_trace_thought("安全操作評估", f"適航安全評估：{risk_ass}")
 
             final_resp = (
                 f"報告機長，為您回報 **{target_icao}** 即時機場氣象報告 (METAR)：\n\n"
@@ -600,8 +658,7 @@ class BRVAAgent:
                 f"• **適航安全評估**：{risk_ass}\n\n"
                 f"長官若需要安排航班簽派，請隨時指示！"
             )
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 5. Route Planning & Weather Analysis Chain
@@ -654,21 +711,19 @@ class BRVAAgent:
             if rwy_match:
                 target_rwy = (rwy_match.group(1) or rwy_match.group(2)).upper()
 
-            if verbose:
-                print(f"\n[🤖 Agent 決策] 使用者欲由 {dep} 執飛 {aircraft} 至 {arr}。執行兩步驟工具鏈：航線檢索 ➡️ 目的地起降氣象解析...")
-                print(f"[🔍 Tool Call 1] -> query_virtual_routes(dep_icao='{dep}', arr_icao='{arr}', aircraft_type='{aircraft}')")
+            self._add_trace_thought("簽派多步驟工具鏈規劃", f"使用者欲由 {dep} 執飛 {aircraft} 至 {arr}。執行兩步驟工具鏈：航線檢索 ➡️ 目的地起降氣象解析")
+            self._add_trace_tool_call("query_virtual_routes", f"query_virtual_routes(dep_icao='{dep}', arr_icao='{arr}', aircraft_type='{aircraft}')")
 
             routes = query_virtual_routes(dep, arr, aircraft)
             flight = routes[0] if routes else {"flight_number": f"BR{dep[2:]}{arr[2:]}", "aircraft": aircraft, "flight_time": "2h 40m"}
 
-            if verbose:
-                print(f"[📥 Observation 1] -> 匹配推薦班次：{flight['flight_number']}（{flight['aircraft']}，航程預估 {flight['flight_time']}）")
-                print(f"[🔍 Tool Call 2] -> fetch_aviation_weather(icao='{arr}', runway='{target_rwy}')")
+            self._add_trace_observation(f"匹配推薦班次：{flight['flight_number']}（{flight['aircraft']}，航程預估 {flight['flight_time']}）")
+            self._add_trace_tool_call("fetch_aviation_weather", f"fetch_aviation_weather(icao='{arr}', runway='{target_rwy}')")
 
             weather = fetch_aviation_weather(arr, target_rwy)
 
-            if verbose:
-                print(f"[📥 Observation 2] -> {arr} 即時 METAR 取得成功，{target_rwy} 跑道側風分量 {weather['crosswind_kts']} 節\n")
+            self._add_trace_observation(f"{arr} 即時 METAR 取得成功，{target_rwy} 跑道側風分量 {weather['crosswind_kts']} 節")
+            self._add_trace_thought("人機協同記憶鎖定 (HITL)", f"將待簽派班次 {flight['flight_number']} 寫入 Agent Memory (PendingDispatch)，等待機長授權放行")
 
             # Save pending dispatch into Agent Memory
             self.memory.set_pending(PendingDispatch(
@@ -691,17 +746,18 @@ class BRVAAgent:
                 f"3. 【防禦性操作提醒】：側風雖然合規，但若存在陣風，進場平飄時請適時下風向盤舵修正偏流，保持機頭對正跑道中心線。\n\n"
                 f"👉 如果沒有其他要修改的是否直接為您簽派 {flight['flight_number']}？"
             )
-            self.memory.add_message("assistant", final_resp)
-            return final_resp
+            return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
         # 6. Fallback / Unified LLM Open Response (Ollama / Gemini / Offline)
         # -------------------------------------------------------------
         if self.llm and self.llm.is_available() and self.llm.provider_name != "offline":
+            self._add_trace_thought("LLM 自然語言推理", f"呼叫大型語言模型 {self.llm.provider_name} ({self.llm.model_name}) 進行決策與回覆生成...")
             try:
                 resp = self.llm.generate(prompt=user_text, system_prompt=SYSTEM_PROMPT)
                 if resp and resp.content:
                     if resp.content.startswith("⚠️"):
+                        self._add_trace_observation(f"⚠️ LLM 連線異常：{resp.content[:60]}")
                         final_resp = (
                             f"⚠️ 【LLM 連線異常】\n"
                             f"目前無法連線至指定的 AI 模型 ({self.llm.provider_name})：\n"
@@ -717,16 +773,16 @@ class BRVAAgent:
                             f"• 航網簽派：「我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)」\n"
                             f"• 黑盒子審核：「請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄」"
                         )
-                        self.memory.add_message("assistant", final_resp)
-                        return final_resp
+                        return self._finish_run(final_resp, return_trace)
+                    self._add_trace_observation(f"成功自 {self.llm.provider_name} ({self.llm.model_name}) 生成回應")
                     final_resp = resp.content
-                    self.memory.add_message("assistant", final_resp)
-                    return final_resp
+                    return self._finish_run(final_resp, return_trace)
             except Exception as e:
+                self._add_trace_observation(f"⚠️ LLM 執行異常：{e}")
                 final_resp = f"⚠️ 【LLM 執行異常】: {e}"
-                self.memory.add_message("assistant", final_resp)
-                return final_resp
+                return self._finish_run(final_resp, return_trace)
 
+        self._add_trace_thought("離線規則引擎指引", "當前處於離線確定性模式，向機長呈現完整副駕功能提示。")
         final_resp = (
             "報告機長，我是您的 AI 簽派副駕與考核助理。請告訴我您的具體飛行或查詢需求，例如：\n\n"
             "• 🏆 **排行榜查詢**：「幫我查飛行時數排行榜」或「查點數榜」\n"
@@ -741,8 +797,7 @@ class BRVAAgent:
             "• 📖 **官方規章與 SOP**：「請問雙發客機的發動機啟動順序與滑行速限是多少？」\n"
             "• 📊 **黑盒子飛行遙測審核**：「請幫我審核 sample_flight_fail.csv」"
         )
-        self.memory.add_message("assistant", final_resp)
-        return final_resp
+        return self._finish_run(final_resp, return_trace)
 
 
 # Backward-compatible alias for existing tests and scripts

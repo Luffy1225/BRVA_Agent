@@ -22,38 +22,62 @@ except ImportError:
                     os.environ.setdefault(k.strip(), v.strip())
 
 
-def load_secret_file() -> None:
+def parse_secret_string(content: str) -> Dict[str, str]:
     """
-    Loads secret credentials from sercet.txt or secret.txt if present.
-    Supports API_SERVER, BACKEND_KEY, LLM_API_KEY, OFFICIAL_TEST_TOKEN, etc.
+    Parses key-value pairs from a text string (e.g. sercet.txt, secret.txt, or uploaded file),
+    sets corresponding environment variables, and returns a dictionary of mapped settings.
     """
-    for fname in ("sercet.txt", "secret.txt"):
-        s_path = ROOT_DIR / fname
-        if s_path.exists():
+    loaded: Dict[str, str] = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            k, v = line.split("=", 1)
+            k = k.strip()
+            v = v.strip().strip("'").strip('"')
+            os.environ[k] = v
+            ku = k.upper()
+            if ku in ("API_SERVER", "BRVA_API_BASE_URL", "BASE_URL"):
+                os.environ["BRVA_API_BASE_URL"] = v
+                loaded["BRVA_API_BASE_URL"] = v
+            elif ku in ("CREWCENTER_TOKEN", "OFFICIAL_TEST_TOKEN", "TEST_PILOT_TOKEN", "BACKEND_KEY", "PILOT_TOKEN"):
+                os.environ["OFFICIAL_TEST_TOKEN"] = v
+                loaded["OFFICIAL_TEST_TOKEN"] = v
+            elif ku in ("BRVA_AGENT_API_KEY", "X_AGENT_KEY"):
+                os.environ["BRVA_AGENT_API_KEY"] = v
+                loaded["BRVA_AGENT_API_KEY"] = v
+            elif ku in ("LLM_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+                os.environ["GEMINI_API_KEY"] = v
+                loaded["GEMINI_API_KEY"] = v
+            elif ku in ("TEST_PILOT_USERNAME",):
+                os.environ["TEST_PILOT_USERNAME"] = v
+                loaded["TEST_PILOT_USERNAME"] = v
+            elif ku in ("TEST_PILOT_PASSWORD",):
+                os.environ["TEST_PILOT_PASSWORD"] = v
+                loaded["TEST_PILOT_PASSWORD"] = v
+            else:
+                loaded[k] = v
+    return loaded
+
+
+def load_secret_file(target_path: Optional[Path] = None) -> Dict[str, str]:
+    """
+    Loads secret credentials from sercet.txt or secret.txt (or target_path) if present.
+    Supports API_SERVER, CREWCENTER_TOKEN, BACKEND_KEY, LLM_API_KEY, OFFICIAL_TEST_TOKEN, etc.
+    Returns the loaded dictionary of settings.
+    """
+    targets = [target_path] if target_path else [ROOT_DIR / "sercet.txt", ROOT_DIR / "secret.txt"]
+    for s_path in targets:
+        if s_path and s_path.exists():
             try:
                 with open(s_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#") and "=" in line:
-                            k, v = line.split("=", 1)
-                            k = k.strip()
-                            v = v.strip()
-                            os.environ[k] = v
-                            ku = k.upper()
-                            if ku in ("API_SERVER", "BRVA_API_BASE_URL"):
-                                os.environ["BRVA_API_BASE_URL"] = v
-                            elif ku in ("BACKEND_KEY", "BRVA_AGENT_API_KEY", "X_AGENT_KEY"):
-                                os.environ["BRVA_AGENT_API_KEY"] = v
-                            elif ku in ("LLM_API_KEY", "GEMINI_API_KEY"):
-                                os.environ["GEMINI_API_KEY"] = v
-                            elif ku in ("OFFICIAL_TEST_TOKEN", "TEST_PILOT_TOKEN"):
-                                os.environ["OFFICIAL_TEST_TOKEN"] = v
-                            elif ku in ("TEST_PILOT_USERNAME",):
-                                os.environ["TEST_PILOT_USERNAME"] = v
-                            elif ku in ("TEST_PILOT_PASSWORD",):
-                                os.environ["TEST_PILOT_PASSWORD"] = v
+                    data = parse_secret_string(f.read())
+                    if data:
+                        return data
             except Exception as e:
-                print(f"[Config] Warning loading {fname}: {e}")
+                print(f"[Config] Warning loading {s_path.name}: {e}")
+    return {}
 
 
 # Load private secrets from sercet.txt / secret.txt
@@ -205,12 +229,12 @@ def save_config_to_secret_file(updates: Dict[str, Any]) -> bool:
                     matched_val = None
                     if ku in ("API_SERVER", "BRVA_API_BASE_URL") and "BRVA_API_BASE_URL" in updates:
                         matched_val = updates["BRVA_API_BASE_URL"]
-                    elif ku in ("BACKEND_KEY", "BRVA_AGENT_API_KEY", "X_AGENT_KEY") and "BRVA_AGENT_API_KEY" in updates:
+                    elif ku in ("CREWCENTER_TOKEN", "OFFICIAL_TEST_TOKEN", "TEST_PILOT_TOKEN", "BACKEND_KEY") and "OFFICIAL_TEST_TOKEN" in updates:
+                        matched_val = updates["OFFICIAL_TEST_TOKEN"]
+                    elif ku in ("BRVA_AGENT_API_KEY", "X_AGENT_KEY") and "BRVA_AGENT_API_KEY" in updates:
                         matched_val = updates["BRVA_AGENT_API_KEY"]
                     elif ku in ("LLM_API_KEY", "GEMINI_API_KEY") and "GEMINI_API_KEY" in updates:
                         matched_val = updates["GEMINI_API_KEY"]
-                    elif ku in ("OFFICIAL_TEST_TOKEN", "TEST_PILOT_TOKEN") and "OFFICIAL_TEST_TOKEN" in updates:
-                        matched_val = updates["OFFICIAL_TEST_TOKEN"]
                     elif k in updates:
                         matched_val = updates[k]
 

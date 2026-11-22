@@ -1,4 +1,5 @@
 import os
+import html
 import streamlit as st
 from src.agent import BRVAAgent, AeroAgent
 from src.context import UserContext
@@ -7,6 +8,8 @@ from src.config import (
     config,
     mask_secret,
     update_runtime_config,
+    load_secret_file,
+    parse_secret_string,
     save_config_to_secret_file,
     SUPPORTED_PROVIDERS,
     SUPPORTED_GEMINI_MODELS,
@@ -53,12 +56,12 @@ with st.sidebar:
         key="top_api_server_input"
     )
 
-    top_backend_key = st.text_input(
-        "🔑 後端機器金鑰 (Backend Key)",
-        value=config.BRVA_AGENT_API_KEY,
+    top_crewcenter_token = st.text_input(
+        "🔑 CrewCenter 授權碼 / Token",
+        value=config.OFFICIAL_TEST_TOKEN or os.getenv("OFFICIAL_TEST_TOKEN", ""),
         type="password",
-        help="後端鑑權所需的 x-agent-key 機器金鑰 (公開 repo 建議透過此處或 sercet.txt 設定)",
-        key="top_backend_key_input"
+        help="CrewCenter 飛官委託授權碼 (由 sercet.txt 自動載入，亦可在此貼入個人授權碼)",
+        key="top_crewcenter_token_input"
     )
 
     top_llm_key = st.text_input(
@@ -69,11 +72,81 @@ with st.sidebar:
         key="top_llm_key_input"
     )
 
-    col_apply, col_test = st.columns(2)
-    with col_apply:
-        apply_clicked = st.button("💾 套用金鑰", type="primary", use_container_width=True, key="cfg_apply_btn")
+    col_import, col_test = st.columns(2)
+    with col_import:
+        import_clicked = st.button("📥 匯入 sercet", use_container_width=True, key="cfg_import_btn", help="從專案根目錄的 sercet.txt 自動載入並套用參數")
     with col_test:
-        test_clicked = st.button("🔍 連線檢驗", use_container_width=True, key="cfg_test_btn")
+        test_clicked = st.button("🔍 連線測試", type="primary", use_container_width=True, key="cfg_test_btn", help="依序測試 API Server、CrewCenter 飛官身分與 LLM")
+
+    uploaded_secret = st.file_uploader(
+        "📂 選擇 sercet.txt 檔案匯入參數",
+        type=["txt", "env"],
+        key="sercet_file_picker",
+        help="選取本機 sercet.txt 或 secret.txt，系統將自動解析 API Server、CrewCenter 授權碼與 LLM 金鑰"
+    )
+
+    # 處理檔案選取上傳匯入
+    if uploaded_secret is not None:
+        file_bytes = uploaded_secret.getvalue()
+        file_str = file_bytes.decode("utf-8", errors="ignore")
+        file_sig = f"{uploaded_secret.name}_{len(file_bytes)}"
+        if st.session_state.get("_last_uploaded_sig") != file_sig:
+            st.session_state._last_uploaded_sig = file_sig
+            parsed = parse_secret_string(file_str)
+            if parsed:
+                updates = {}
+                if "BRVA_API_BASE_URL" in parsed:
+                    st.session_state.top_api_server_input = parsed["BRVA_API_BASE_URL"]
+                    updates["BRVA_API_BASE_URL"] = parsed["BRVA_API_BASE_URL"]
+                if "OFFICIAL_TEST_TOKEN" in parsed:
+                    st.session_state.top_crewcenter_token_input = parsed["OFFICIAL_TEST_TOKEN"]
+                    updates["OFFICIAL_TEST_TOKEN"] = parsed["OFFICIAL_TEST_TOKEN"]
+                if "GEMINI_API_KEY" in parsed:
+                    st.session_state.top_llm_key_input = parsed["GEMINI_API_KEY"]
+                    updates["GEMINI_API_KEY"] = parsed["GEMINI_API_KEY"]
+                if updates:
+                    update_runtime_config(updates, persist_to_env=False, persist_to_secret=False)
+                    backend_client.configure(base_url=config.BRVA_API_BASE_URL)
+                    new_prov = get_llm_provider(
+                        provider_type=config.LLM_PROVIDER,
+                        gemini_api_key=config.GEMINI_API_KEY,
+                        gemini_model=config.GEMINI_MODEL,
+                        ollama_base_url=config.OLLAMA_BASE_URL,
+                        ollama_model=config.OLLAMA_MODEL,
+                    )
+                    st.session_state.agent = BRVAAgent(llm_provider=new_prov)
+                st.success(f"✅ 已成功從檔案 `{uploaded_secret.name}` 匯入參數！")
+                st.rerun()
+
+    # 處理點擊「📥 匯入 sercet」按鈕
+    if import_clicked:
+        loaded = load_secret_file()
+        if loaded:
+            updates = {}
+            if "BRVA_API_BASE_URL" in loaded:
+                st.session_state.top_api_server_input = loaded["BRVA_API_BASE_URL"]
+                updates["BRVA_API_BASE_URL"] = loaded["BRVA_API_BASE_URL"]
+            if "OFFICIAL_TEST_TOKEN" in loaded:
+                st.session_state.top_crewcenter_token_input = loaded["OFFICIAL_TEST_TOKEN"]
+                updates["OFFICIAL_TEST_TOKEN"] = loaded["OFFICIAL_TEST_TOKEN"]
+            if "GEMINI_API_KEY" in loaded:
+                st.session_state.top_llm_key_input = loaded["GEMINI_API_KEY"]
+                updates["GEMINI_API_KEY"] = loaded["GEMINI_API_KEY"]
+            if updates:
+                update_runtime_config(updates, persist_to_env=False, persist_to_secret=False)
+                backend_client.configure(base_url=config.BRVA_API_BASE_URL)
+                new_prov = get_llm_provider(
+                    provider_type=config.LLM_PROVIDER,
+                    gemini_api_key=config.GEMINI_API_KEY,
+                    gemini_model=config.GEMINI_MODEL,
+                    ollama_base_url=config.OLLAMA_BASE_URL,
+                    ollama_model=config.OLLAMA_MODEL,
+                )
+                st.session_state.agent = BRVAAgent(llm_provider=new_prov)
+            st.success("✅ 已成功從專案 `sercet.txt` 載入並套用參數！")
+            st.rerun()
+        else:
+            st.warning("⚠️ 未在專案目錄找到 `sercet.txt` 或 `secret.txt`，請使用上方的檔案選擇器選取檔案。")
 
     with st.expander("⚙️ 進階模型選型 (LLM Model Selection)", expanded=False):
         provider_options = ["gemini", "ollama", "offline", "auto"]
@@ -142,10 +215,11 @@ with st.sidebar:
 
         save_to_secret = st.checkbox("💾 同步儲存至 sercet.txt / .env", value=True, key="cfg_save_secret_checkbox")
 
-    if apply_clicked:
+    if test_clicked:
+        # 同步更新執行時期設定
         updates = {
             "BRVA_API_BASE_URL": top_api_server.strip(),
-            "BRVA_AGENT_API_KEY": top_backend_key.strip(),
+            "OFFICIAL_TEST_TOKEN": top_crewcenter_token.strip(),
             "GEMINI_API_KEY": top_llm_key.strip(),
             "LLM_PROVIDER": selected_provider,
             "GEMINI_MODEL": gemini_model_val.strip(),
@@ -153,25 +227,44 @@ with st.sidebar:
             "OLLAMA_MODEL": ollama_model_val.strip(),
         }
         update_runtime_config(updates, persist_to_env=save_to_secret, persist_to_secret=save_to_secret)
-        
-        # Rebuild LLM provider and agent
-        new_prov = get_llm_provider(
-            provider_type=selected_provider,
-            gemini_api_key=top_llm_key.strip(),
-            gemini_model=gemini_model_val.strip(),
-            ollama_base_url=ollama_url_val.strip(),
-            ollama_model=ollama_model_val.strip(),
-        )
-        st.session_state.agent = BRVAAgent(llm_provider=new_prov)
-        backend_client.configure(
-            base_url=top_api_server.strip(),
-            api_key=top_backend_key.strip()
-        )
-        st.success("✅ 設定已成功套用！")
-        st.rerun()
+        backend_client.configure(base_url=top_api_server.strip())
 
-    if test_clicked:
         with st.spinner("連線健康檢測中..."):
+            # 1. 測試 API Server
+            from src.client import BackendClient
+            temp_client = BackendClient(base_url=top_api_server.strip())
+            b_ok, b_msg = temp_client.test_connection()
+
+            # 2. 測試 CrewCenter Pilot 身分
+            curr_ctx = st.session_state.user_context
+            target_token = top_crewcenter_token.strip() or config.OFFICIAL_TEST_TOKEN or os.getenv("OFFICIAL_TEST_TOKEN", "")
+            pilot_token_to_test = st.session_state.get("pilot_manual_token_box", "").strip() or target_token
+
+            pilot_status = "guest"
+            pilot_user = None
+            pilot_err = None
+
+            if curr_ctx and curr_ctx.is_authenticated:
+                pilot_status = "already_linked"
+                pilot_user = {
+                    "callsign": curr_ctx.callsign,
+                    "username": curr_ctx.username,
+                    "rankName": curr_ctx.rank_name,
+                    "points": curr_ctx.points,
+                    "flightTimeHours": curr_ctx.flight_time_hours,
+                }
+            elif pilot_token_to_test:
+                val_res = temp_client.verify_token(pilot_token_to_test)
+                if val_res and val_res.get("valid") and val_res.get("user"):
+                    pilot_status = "valid"
+                    pilot_user = val_res["user"]
+                else:
+                    pilot_status = "invalid"
+                    pilot_err = val_res.get("error") if val_res else "無法連線至 API 伺服器或授權碼無效"
+            else:
+                pilot_status = "guest"
+
+            # 3. 測試 LLM
             temp_prov = get_llm_provider(
                 provider_type=selected_provider,
                 gemini_api_key=top_llm_key.strip(),
@@ -180,49 +273,51 @@ with st.sidebar:
                 ollama_model=ollama_model_val.strip(),
             )
             p_ok, p_msg = temp_prov.test_connection()
-            
-            from src.client import BackendClient
-            temp_client = BackendClient(base_url=top_api_server.strip(), api_key=top_backend_key.strip())
-            b_ok, b_msg = temp_client.test_connection()
+            st.session_state.agent = BRVAAgent(llm_provider=temp_prov)
 
-        st.markdown("##### 🩺 三合一連線檢驗報告")
-        if p_ok:
-            st.success(f"🟢 **1. AI 模型 ({temp_prov.provider_name.upper()})**\n\n{p_msg}")
-        else:
-            st.error(f"🔴 **1. AI 模型 ({temp_prov.provider_name.upper()})**\n\n{p_msg}")
+        st.markdown("##### 🩺 三合一連線測試報告")
 
+        # 報告 1: API Server
         if b_ok:
-            st.success(f"🟢 **2. BRVA API 伺服器**\n\n{b_msg}")
+            st.success(f"🟢 **1. API Server (BRVA 伺服器)**\n\n{b_msg}")
         else:
-            st.warning(f"🟡 **2. BRVA API 伺服器**\n\n{b_msg}")
+            st.warning(f"🟡 **1. API Server (BRVA 伺服器)**\n\n{b_msg}")
 
-        curr_ctx = st.session_state.user_context
-        if curr_ctx and curr_ctx.is_authenticated:
+        # 報告 2: CrewCenter Pilot 身分
+        if pilot_status == "already_linked":
+            u_cs = pilot_user.get("callsign") or "N/A"
+            u_name = pilot_user.get("username") or "Pilot"
             st.success(
-                f"🟢 **3. 飛官身分 (CrewCenter)**\n\n"
-                f"成功讀取到飛官資訊：`{curr_ctx.callsign}` 機長 (`{curr_ctx.username}`)\n\n"
-                f"• 階級：`{curr_ctx.rank_name}` ｜ 點數：`{curr_ctx.points:,.0f} pts` ｜ 總時數：`{curr_ctx.flight_time_hours:,.1f} h`"
+                f"🟢 **2. CrewCenter Pilot 身分 (已於會話連結)**\n\n"
+                f"飛官身分：`{u_cs}` 機長 (`{u_name}`)\n\n"
+                f"• 階級：`{pilot_user.get('rankName', 'Senior Captain')}` ｜ 點數：`{float(pilot_user.get('points') or 0):,.0f} pts` ｜ 總時數：`{float(pilot_user.get('flightTimeHours') or 0):,.1f} h`"
+            )
+        elif pilot_status == "valid":
+            u_cs = pilot_user.get("callsign") or "N/A"
+            u_name = pilot_user.get("username") or config.TEST_PILOT_USERNAME or "Pilot"
+            st.success(
+                f"🟢 **2. CrewCenter Pilot 身分**\n\n"
+                f"成功讀取到飛官資訊：`{u_cs}` 機長 (`{u_name}`)\n\n"
+                f"• 階級：`{pilot_user.get('rankName', 'Senior Captain')}` ｜ 點數：`{float(pilot_user.get('points') or 0):,.0f} pts` ｜ 總時數：`{float(pilot_user.get('flightTimeHours') or 0):,.1f} h`\n\n"
+                f"*(點擊下方【⚡ 一鍵使用測試帳號】即可套用至會話)*"
+            )
+        elif pilot_status == "invalid":
+            st.error(
+                f"🔴 **2. CrewCenter Pilot 身分**\n\n"
+                f"授權碼驗證失敗：{pilot_err}。請檢查 CrewCenter 授權碼是否正確或過期。"
             )
         else:
-            target_token = config.OFFICIAL_TEST_TOKEN or os.getenv("OFFICIAL_TEST_TOKEN", "")
-            pilot_token_to_test = st.session_state.get("pilot_manual_token_box", "").strip() or target_token
-            val_res = temp_client.verify_token(pilot_token_to_test) if pilot_token_to_test else None
-            if val_res and val_res.get("valid") and val_res.get("user"):
-                u = val_res["user"]
-                u_callsign = u.get("callsign") or "N/A"
-                u_username = u.get("username") or config.TEST_PILOT_USERNAME or "Pilot"
-                st.success(
-                    f"🟢 **3. 飛官身分 (CrewCenter)**\n\n"
-                    f"成功讀取到飛官資訊：`{u_callsign}` 機長 (`{u_username}`)\n\n"
-                    f"• 階級：`{u.get('rankName', 'Senior Captain')}` ｜ 點數：`{float(u.get('points') or 0):,.0f} pts` ｜ 總時數：`{float(u.get('flightTimeHours') or 0):,.1f} h`\n\n"
-                    f"*(點擊下方【⚡ 一鍵使用測試帳號】即可套用至會話)*"
-                )
-            else:
-                st.info(
-                    "🟡 **3. 飛官身分 (CrewCenter)**\n\n"
-                    "目前為 **訪客模式 (未連結飛官帳號)**。\n\n"
-                    "💡 **提示**：未連結帳號也能 **100% 正常使用** 公開航網班次、即時氣象 (METAR)、側風分量計算、飛行員排行榜與民航規章 SOP！"
-                )
+            st.info(
+                "🟡 **2. CrewCenter Pilot 身分**\n\n"
+                "目前為 **訪客模式 (未輸入授權碼)**。\n\n"
+                "💡 **提示**：未連結帳號也能 **100% 正常使用** 公開航網班次、即時氣象 (METAR)、側風分量計算、飛行員排行榜與民航規章 SOP！"
+            )
+
+        # 報告 3: LLM
+        if p_ok:
+            st.success(f"🟢 **3. LLM (AI 模型 · {temp_prov.provider_name.upper()})**\n\n{p_msg}")
+        else:
+            st.error(f"🔴 **3. LLM (AI 模型 · {temp_prov.provider_name.upper()})**\n\n{p_msg}")
 
     st.divider()
 
@@ -245,28 +340,32 @@ with st.sidebar:
         st.caption("👤 目前為訪客模式 (可直接查公開航網、氣象、規章與排行榜)")
 
         if st.button("⚡ 一鍵使用測試帳號", use_container_width=True, type="primary"):
-            with st.spinner("向伺服器驗證並載入官方測試帳號..."):
-                val_res = backend_client.verify_token(OFFICIAL_TEST_TOKEN)
-                if val_res and val_res.get("valid") and val_res.get("user"):
-                    u = val_res["user"]
-                    u_cs = u.get("callsign") or "N/A"
-                    u_name = u.get("username") or "AgenticTesting"
-                    st.session_state.user_context = UserContext(
-                        is_authenticated=True,
-                        user_id=str(u.get("userId")),
-                        callsign=u_cs,
-                        username=u_name,
-                        rank_name=u.get("rankName", "Senior Captain"),
-                        points=float(u.get("points") or 0.0),
-                        flight_time_hours=float(u.get("flightTimeHours") or 0.0),
-                        delegation_token=OFFICIAL_TEST_TOKEN,
-                        scopes=u.get("scopes") or ["dispatch", "profile:read", "store:read", "routes"]
-                    )
-                    st.success(f"✅ 成功一鍵連結飛官：{u_cs} ({u_name})！")
-                    st.rerun()
-                else:
-                    err = val_res.get("error") if val_res else "無法連線至 BRVA API 伺服器"
-                    st.error(f"❌ 授權碼驗證失敗：{err}。請確認後端連線狀態與帳號權限。")
+            target_token = top_crewcenter_token.strip() or config.OFFICIAL_TEST_TOKEN or os.getenv("OFFICIAL_TEST_TOKEN", "")
+            if not target_token:
+                st.error("❌ 尚未在 sercet.txt 或上方輸入框設定 CrewCenter 授權碼，請先填入測試授權碼。")
+            else:
+                with st.spinner("向伺服器驗證並載入官方測試帳號..."):
+                    val_res = backend_client.verify_token(target_token)
+                    if val_res and val_res.get("valid") and val_res.get("user"):
+                        u = val_res["user"]
+                        u_cs = u.get("callsign") or "N/A"
+                        u_name = u.get("username") or config.TEST_PILOT_USERNAME or "Pilot"
+                        st.session_state.user_context = UserContext(
+                            is_authenticated=True,
+                            user_id=str(u.get("userId")),
+                            callsign=u_cs,
+                            username=u_name,
+                            rank_name=u.get("rankName", "Senior Captain"),
+                            points=float(u.get("points") or 0.0),
+                            flight_time_hours=float(u.get("flightTimeHours") or 0.0),
+                            delegation_token=target_token,
+                            scopes=u.get("scopes") or ["dispatch", "profile:read", "store:read", "routes"]
+                        )
+                        st.success(f"✅ 成功一鍵連結飛官：{u_cs} ({u_name})！")
+                        st.rerun()
+                    else:
+                        err = val_res.get("error") if val_res else "無法連線至 BRVA API 伺服器"
+                        st.error(f"❌ 授權碼驗證失敗：{err}。請確認後端連線狀態與帳號權限。")
 
         # Advanced Manual Token Input (Collapsible by default so normal users won't see it directly)
         with st.expander("🛠️ 進階：手動輸入授權碼", expanded=False):
@@ -286,7 +385,7 @@ with st.sidebar:
                         if val_res and val_res.get("valid") and val_res.get("user"):
                             u = val_res["user"]
                             u_cs = u.get("callsign") or "N/A"
-                            u_name = u.get("username") or "AgenticTesting"
+                            u_name = u.get("username") or config.TEST_PILOT_USERNAME or "Pilot"
                             st.session_state.user_context = UserContext(
                                 is_authenticated=True,
                                 user_id=str(u.get("userId")),
@@ -312,9 +411,15 @@ with st.sidebar:
         "點擊下方按鈕進入查看："
     )
     st.link_button("🌐 前往 CrewCenter", "https://crewcenter.eva-virtual.com", use_container_width=True)
-    st.caption("💡 官方測試機長帳號：`AgenticTesting` ｜ 密碼：`!1TestAgent`")
 
     st.divider()
+
+    st.checkbox(
+        "💭 預設展開思考歷程與工具調用",
+        value=False,
+        key="cfg_auto_expand_trace",
+        help="勾選後預設自動展開每則對話上方的思考歷程與工具呼叫；未勾選則保持 Antigravity 式折疊，可隨時點擊展開。"
+    )
 
     st.header("🛠️ 快速測試案例 (Demo Presets)")
     
@@ -365,10 +470,69 @@ with st.sidebar:
 if config.LLM_PROVIDER == "gemini" and (not config.GEMINI_API_KEY or "your_gemini" in config.GEMINI_API_KEY):
     st.warning("⚠️ **尚未設定 Google Gemini API Key**：目前模型選型為 Google Gemini，請於左側側邊欄「⚙️ 參數設定與模型選型」輸入您的 API Key，或切換為 Offline 離線免金鑰模式！")
 
+def render_trace_expander(trace: list, expanded: bool = False):
+    if not trace:
+        return
+
+    num_tools = sum(1 for s in trace if s.get("type") == "tool_call")
+    num_thoughts = sum(1 for s in trace if s.get("type") == "thought")
+
+    badge_items = []
+    if num_thoughts > 0:
+        badge_items.append(f"{num_thoughts} 步思考")
+    if num_tools > 0:
+        badge_items.append(f"{num_tools} 次工具調用")
+    badge_str = " · ".join(badge_items) if badge_items else "執行歷程"
+
+    expander_title = f"💭 思考過程與工具調用 (Thinking & Tools · {badge_str})"
+
+    with st.expander(expander_title, expanded=expanded):
+        thought_idx = 1
+        for step in trace:
+            s_type = step.get("type", "thought")
+            title = step.get("title", "")
+            content = step.get("content", "")
+
+            if s_type == "thought":
+                safe_title = html.escape(title)
+                safe_content = html.escape(content).replace("\n", "<br/>")
+                st.markdown(
+                    f"<div style='border-left: 3px solid #3b82f6; padding-left: 10px; margin-top: 6px; margin-bottom: 8px;'>"
+                    f"<span style='color: #60a5fa; font-weight: 600; font-size: 0.9em;'>💭 思考 #{thought_idx} · {safe_title}</span><br/>"
+                    f"<span style='font-size: 0.88em; opacity: 0.9; line-height: 1.4;'>{safe_content}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+                thought_idx += 1
+            elif s_type == "tool_call":
+                tool_name = step.get("tool", "tool")
+                safe_tool = html.escape(tool_name)
+                st.markdown(
+                    f"<div style='border-left: 3px solid #10b981; padding-left: 10px; margin-top: 6px; margin-bottom: 4px;'>"
+                    f"<span style='color: #34d399; font-weight: 600; font-size: 0.9em;'>🔧 調用工具 · <code>{safe_tool}</code></span>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+                st.code(content, language="python")
+            elif s_type == "observation":
+                safe_obs = html.escape(content).replace("\n", "<br/>")
+                st.markdown(
+                    f"<div style='border-left: 3px solid #a855f7; padding-left: 10px; margin-top: 4px; margin-bottom: 12px;'>"
+                    f"<span style='color: #c084fc; font-weight: 600; font-size: 0.9em;'>📥 執行觀察 (Observation)</span><br/>"
+                    f"<span style='font-size: 0.88em; opacity: 0.88; line-height: 1.4;'>{safe_obs}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+
 # Display conversation
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+        if msg["role"] == "assistant" and msg.get("trace"):
+            render_trace_expander(msg["trace"], expanded=st.session_state.get("cfg_auto_expand_trace", False))
+        if msg["role"] == "assistant" and msg["content"].startswith("⚠️"):
+            st.error(msg["content"])
+        else:
+            st.markdown(msg["content"])
 
 # User input box
 default_prompt = getattr(st.session_state, "prompt_input", "")
@@ -391,9 +555,12 @@ if user_prompt:
                 user_context=st.session_state.user_context,
                 verbose=False
             )
-            if response.startswith("⚠️"):
-                st.error(response)
-            else:
-                st.markdown(response)
+            trace = st.session_state.agent.get_last_trace()
 
-    st.session_state.messages.append({"role": "assistant", "content": response})
+        render_trace_expander(trace, expanded=st.session_state.get("cfg_auto_expand_trace", False))
+        if response.startswith("⚠️"):
+            st.error(response)
+        else:
+            st.markdown(response)
+
+    st.session_state.messages.append({"role": "assistant", "content": response, "trace": trace})

@@ -133,5 +133,27 @@ class TestAgentTrace(unittest.TestCase):
         self.assertIn("CrewCenter", resp)
         self.assertIn("METAR", resp)
 
+    def test_trace_collection_for_collapsible_ui(self):
+        """Tests that thoughts, tool calls, and observations are tracked in agent.last_trace."""
+        resp, trace = self.agent.run("幫我查一下 RCTP 05L 即時天氣與側風", verbose=False, return_trace=True)
+        self.assertIn("RCTP", resp)
+        self.assertTrue(len(trace) >= 2)
+
+        thought_steps = [s for s in trace if s["type"] == "thought"]
+        tool_steps = [s for s in trace if s["type"] == "tool_call"]
+        obs_steps = [s for s in trace if s["type"] == "observation"]
+
+        self.assertTrue(len(thought_steps) >= 1)
+        self.assertTrue(len(tool_steps) >= 1)
+        self.assertTrue(len(obs_steps) >= 1)
+        self.assertEqual(tool_steps[0]["tool"], "fetch_aviation_weather")
+        self.assertEqual(self.agent.get_last_trace(), trace)
+
+        # Multi-step route planning trace
+        resp2, trace2 = self.agent.run("我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)", verbose=False, return_trace=True)
+        tools_invoked = [s["tool"] for s in trace2 if s["type"] == "tool_call"]
+        self.assertIn("query_virtual_routes", tools_invoked)
+        self.assertIn("fetch_aviation_weather", tools_invoked)
+
 if __name__ == "__main__":
     unittest.main()

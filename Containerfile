@@ -29,5 +29,5 @@ USER aero
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Default to interactive CLI
-ENTRYPOINT ["python", "-m", "src.ui.cli"]
+# Default to interactive CLI (can be overridden by podman run arguments)
+CMD ["python", "-m", "src.ui.cli"]
