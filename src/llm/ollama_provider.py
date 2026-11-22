@@ -38,6 +38,18 @@ class OllamaProvider(BaseLLMProvider):
         except Exception:
             return False
 
+    def test_connection(self) -> tuple[bool, str]:
+        """Validates connection to Ollama server and lists installed models."""
+        try:
+            resp = requests.get(f"{self.base_url}/api/tags", timeout=min(2.5, self.timeout))
+            if resp.status_code == 200:
+                models = self.list_local_models()
+                m_count = len(models)
+                return True, f"連線成功 ({self.base_url}，在線模型: {m_count} 個)"
+            return False, f"Ollama 回應異常 (HTTP {resp.status_code})"
+        except Exception as e:
+            return False, f"無法連線主機 ({self.base_url})"
+
     def list_local_models(self) -> List[str]:
         """Returns list of models currently pulled in the local Ollama instance."""
         try:

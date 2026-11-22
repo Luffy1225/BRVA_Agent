@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import random
 from typing import Dict, Any, List, Optional
 from src.config import config
 from src.context import UserContext
@@ -46,6 +47,68 @@ class AeroAgent:
         self.memory = memory or AgentMemory()
         self.llm = llm_provider or get_llm_provider()
 
+    def set_llm_provider(self, llm_provider: BaseLLMProvider):
+        """Dynamically switches the active LLM provider during runtime."""
+        self.llm = llm_provider
+
+    def _format_crewcenter_offline_response(
+        self,
+        tool_name: str,
+        user_text: str,
+        default_summary: Optional[str] = None
+    ) -> str:
+        """
+        Dynamically formats a friendly, lively, and aviation-authentic co-pilot response
+        when CrewCenter backend/database is offline or unreachable.
+        Uses LLM if available; falls back to a randomized realistic co-pilot pool if offline.
+        """
+        # 1. Dynamic LLM Generation (when LLM is active & online)
+        if self.llm and self.llm.is_available() and self.llm.provider_name != "offline":
+            try:
+                offline_prompt = (
+                    f"【座艙狀況通報】：\n"
+                    f"機長/教官剛才的指令或詢問：「{user_text}」\n"
+                    f"你剛才呼叫執行的航電工具：{tool_name}\n"
+                    f"目前的通聯狀態：CrewCenter 簽派中心資料庫連線逾時或伺服器暫時離線（CREWCENTER_OFFLINE）。\n\n"
+                    f"【副駕駛回覆指引】：\n"
+                    f"1. 請發揮長榮虛擬航空 AI 簽派副駕駛 (AeroAgent) 的專業與貼心風格，向教官/機長生動回報此狀況。\n"
+                    f"2. 語氣自然、專業有禮貌，切忌死板冷冰冰的格式化報錯（例如可以提及航電資料鏈路 ACARS 暫時訊號不佳、簽派中心主機正在維修、喝杯熱咖啡稍後再呼叫等航空情境）。\n"
+                    f"3. 貼心告知：本機的【即時機場 METAR 氣象】、【跑道側風分量計算】、【長榮飛行規章 SOP】以及【黑盒子時序遙測審核】依然正常可用，詢問機長是否先進行其他飛行準備。\n"
+                    f"4. 篇幅請控制在 100~150 字以內，精練且具座艙真實感。"
+                )
+                resp = self.llm.generate(prompt=offline_prompt, system_prompt=SYSTEM_PROMPT)
+                if resp and resp.content and not resp.content.startswith("⚠️"):
+                    return resp.content
+            except Exception:
+                pass  # Fallback to randomized lively co-pilot pool
+
+        # 2. Offline / Fallback: Randomized lively aviation co-pilot pool
+        offline_copilot_phrases = [
+            (
+                "報告教官！剛才呼叫 BRVA CrewCenter 簽派中心，航電資料鏈路 (ACARS) 似乎暫時訊號微弱，主機連線逾時中 📡。\n\n"
+                "主機可能正在進行定期維護或網路有微幅抖動。要不要先喝杯熱咖啡稍候片刻？等連線恢復後我隨時再為您查詢！\n"
+                "在這期間，如果您需要查詢機場 METAR 即時氣象、計算跑道側風分量，或是翻閱長榮飛行 SOP 規章手冊，我依然隨時待命為您服務！"
+            ),
+            (
+                "報告機長！CrewCenter 伺服器端目前通聯逾時，資料庫可能正在進場檢修或處於無線電靜默 ✈️。\n\n"
+                "這段時間您可以先檢查飛行航圖或準備出發檢查單，稍等幾分鐘後我們再重新呼叫連線！\n"
+                "目前本機的機場 METAR 氣象查詢、跑道側風計算與黑盒子飛行紀錄審查功能皆運作正常，請隨時指示。"
+            ),
+            (
+                "報告教官！向 CrewCenter 發送的查詢請求目前未收到應答（主機離線或網路連線逾時）📡。\n\n"
+                "副駕建議我們先保持在當前頻率稍作等待，稍後再重新呼叫。如果您想先了解各跑道的進場側風分量、查詢機場最新 METAR 天氣，或查閱實作考核規章，可以隨時跟我說！"
+            ),
+            (
+                "教官好！CrewCenter 簽派中心目前暫時離線中（伺服器連線逾時）☕。\n\n"
+                "我們稍後再重新嘗試連線。這段空檔若需要確認飛行 SOP、實作檢定考核標準或 METAR 天氣，副駕駛隨時為您報告！"
+            ),
+            (
+                "報告機長！剛才嘗試連線 CrewCenter 資料庫未能成功，主機可能正在暖機或進行日常系統調試。\n\n"
+                "請稍後再試一次連線！目前機場 METAR 氣象查詢、跑道側風計算與飛行紀錄黑盒子審查功能皆運作正常，隨時等候您的指令！"
+            ),
+        ]
+        return random.choice(offline_copilot_phrases)
+
     def run(self, user_input: str, user_context: Optional[UserContext] = None, verbose: bool = True) -> str:
         """
         Processes user query using ReAct loop and Human-in-the-Loop memory tracking.
@@ -78,6 +141,13 @@ class AeroAgent:
                 user_context=user_context
             )
 
+            if ofp_result.get("status") == "CREWCENTER_OFFLINE":
+                if verbose:
+                    print(f"[📥 Observation] -> ⚠️ 簽派中斷：CrewCenter 主機離線或連線逾時\n")
+                final_resp = self._format_crewcenter_offline_response("Simbrief 航網簽派放行", user_text, ofp_result.get("summary"))
+                self.memory.add_message("assistant", final_resp)
+                return final_resp
+
             if ofp_result.get("status") == "SIMBRIEF_NOT_LINKED":
                 if verbose:
                     print(f"[📥 Observation] -> ⚠️ 簽派中斷：飛行員尚未於 BRVA 簽派中心綁定 SimBrief 帳號\n")
@@ -107,7 +177,7 @@ class AeroAgent:
         # 1B. Direct Pilot Profile & Stats Query Check
         # -------------------------------------------------------------
         profile_keywords = ["查我的點數", "我的點數", "點數餘額", "多少點", "我有幾點", "我的時數", "飛行時數", "我的階級", "個人檔案", "個人資料", "帳號資訊"]
-        if any(k in user_text for k in profile_keywords):
+        if any(k in user_text for k in profile_keywords) and not any(lb in user_text for lb in ["榜", "排行", "名次", "leaderboard"]):
             query_type = "summary"
             if any(k in user_text for k in ["點數", "point"]):
                 query_type = "points"
@@ -123,7 +193,10 @@ class AeroAgent:
                 print(f"[🔍 Tool Call] -> query_pilot_profile(query_type='{query_type}')")
 
             res = query_pilot_profile(query_type=query_type, user_context=user_context)
-            final_resp = res.get("summary") or res.get("summary_text", "")
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                final_resp = self._format_crewcenter_offline_response("飛官個人檔案與數據查詢", user_text, res.get("summary"))
+            else:
+                final_resp = res.get("summary") or res.get("summary_text", "")
             self.memory.add_message("assistant", final_resp)
             return final_resp
 
@@ -137,7 +210,10 @@ class AeroAgent:
                 print(f"[🔍 Tool Call] -> query_store_catalog()")
 
             res = query_store_catalog(user_context=user_context)
-            final_resp = res.get("summary") or res.get("summary_text", "")
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                final_resp = self._format_crewcenter_offline_response("商城商品目錄查詢", user_text, res.get("summary"))
+            else:
+                final_resp = res.get("summary") or res.get("summary_text", "")
             self.memory.add_message("assistant", final_resp)
             return final_resp
 
@@ -168,7 +244,10 @@ class AeroAgent:
                 print(f"[🔍 Tool Call] -> query_leaderboard(category='{cat}', sort_by='{sort_by}', days='{days}')")
 
             res = query_leaderboard(category=cat, sort_by=sort_by, days=days, user_context=user_context)
-            final_resp = res.get("summary") or res.get("summary_text", "")
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                final_resp = self._format_crewcenter_offline_response("CrewCenter 排行榜數據查詢", user_text, res.get("summary"))
+            else:
+                final_resp = res.get("summary") or res.get("summary_text", "")
             self.memory.add_message("assistant", final_resp)
             return final_resp
 
@@ -182,7 +261,10 @@ class AeroAgent:
                 print(f"[🔍 Tool Call] -> query_calendar_events(limit=5, include_rotw=True)")
 
             res = query_calendar_events(limit=5, include_rotw=True, user_context=user_context)
-            final_resp = res.get("summary") or res.get("summary_text", "")
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                final_resp = self._format_crewcenter_offline_response("官方活動行事曆與每週航線查詢", user_text, res.get("summary"))
+            else:
+                final_resp = res.get("summary") or res.get("summary_text", "")
             self.memory.add_message("assistant", final_resp)
             return final_resp
 
@@ -196,7 +278,10 @@ class AeroAgent:
                 print(f"[🔍 Tool Call] -> query_pilot_inventory()")
 
             res = query_pilot_inventory(user_context=user_context)
-            final_resp = res.get("summary") or res.get("summary_text", "")
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                final_resp = self._format_crewcenter_offline_response("個人背包道具庫查詢", user_text, res.get("summary"))
+            else:
+                final_resp = res.get("summary") or res.get("summary_text", "")
             self.memory.add_message("assistant", final_resp)
             return final_resp
 
@@ -210,7 +295,10 @@ class AeroAgent:
                 print(f"[🔍 Tool Call] -> query_media_gallery(limit=5)")
 
             res = query_media_gallery(limit=5, user_context=user_context)
-            final_resp = res.get("summary") or res.get("summary_text", "")
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                final_resp = self._format_crewcenter_offline_response("影音藝廊精選作品查詢", user_text, res.get("summary"))
+            else:
+                final_resp = res.get("summary") or res.get("summary_text", "")
             self.memory.add_message("assistant", final_resp)
             return final_resp
 
@@ -234,7 +322,10 @@ class AeroAgent:
                 print(f"[🔍 Tool Call] -> query_live_radar_and_tracker(callsign={target_cs}, icao={target_icao})")
 
             res = query_live_radar_and_tracker(callsign=target_cs, icao=target_icao, user_context=user_context)
-            final_resp = res.get("summary") or res.get("summary_text", "")
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                final_resp = self._format_crewcenter_offline_response("即時航跡雷達與在空班機追蹤", user_text, res.get("summary"))
+            else:
+                final_resp = res.get("summary") or res.get("summary_text", "")
             self.memory.add_message("assistant", final_resp)
             return final_resp
 
@@ -248,7 +339,10 @@ class AeroAgent:
                 print(f"[🔍 Tool Call] -> query_pilot_pireps(limit=5)")
 
             res = query_pilot_pireps(limit=5, user_context=user_context)
-            final_resp = res.get("summary") or res.get("summary_text", "")
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                final_resp = self._format_crewcenter_offline_response("個人飛行報告歷史紀錄查詢", user_text, res.get("summary"))
+            else:
+                final_resp = res.get("summary") or res.get("summary_text", "")
             self.memory.add_message("assistant", final_resp)
             return final_resp
 
@@ -259,7 +353,10 @@ class AeroAgent:
                 print(f"[🔍 Tool Call] -> query_active_dispatch()")
 
             res = query_active_dispatch(user_context=user_context)
-            final_resp = res.get("summary") or res.get("summary_text", "")
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                final_resp = self._format_crewcenter_offline_response("當前有效簽派放行狀態查詢", user_text, res.get("summary"))
+            else:
+                final_resp = res.get("summary") or res.get("summary_text", "")
             self.memory.add_message("assistant", final_resp)
             return final_resp
 
@@ -295,7 +392,10 @@ class AeroAgent:
                 aircraft_type="B78X",
                 user_context=user_context
             )
-            final_resp = ofp_result.get("summary") or ofp_result.get("summary_text", "")
+            if ofp_result.get("status") == "CREWCENTER_OFFLINE":
+                final_resp = self._format_crewcenter_offline_response("航班放行單簽派", user_text, ofp_result.get("summary"))
+            else:
+                final_resp = ofp_result.get("summary") or ofp_result.get("summary_text", "")
             self.memory.add_message("assistant", final_resp)
             return final_resp
 
@@ -348,7 +448,8 @@ class AeroAgent:
             "sop", "手冊", "規定", "規章", "條款", "規範", "準則",
             "啟動順序", "發動機啟動", "引擎啟動", "start sequence",
             "速限", "滑行速限", "taxi speed",
-            "考核", "實作", "檢定", "一票否決", "扣分", "exam", "checkride"
+            "考核", "實作", "檢定", "一票否決", "扣分", "exam", "checkride",
+            "機隊", "預約", "墜機", "通報", "事故", "wait landing", "冷卻期", "通聯", "呼號"
         ]
         if any(k in user_text.lower() for k in rag_keywords):
             if verbose:

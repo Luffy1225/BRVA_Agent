@@ -33,6 +33,15 @@ class BaseLLMProvider(ABC):
         """
         pass
 
+    def test_connection(self) -> tuple[bool, str]:
+        """
+        Tests connectivity and credential validity.
+        Returns (is_success, status_description).
+        """
+        if self.is_available():
+            return True, f"{self.provider_name.upper()} 核心運作正常 ({self.model_name})"
+        return False, f"{self.provider_name.upper()} 服務不可用或連線失敗"
+
     @abstractmethod
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> LLMResponse:
         """

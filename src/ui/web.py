@@ -2,6 +2,15 @@ import streamlit as st
 from src.agent import AeroAgent
 from src.context import UserContext
 from src.client import backend_client
+from src.config import (
+    config,
+    mask_secret,
+    update_runtime_config,
+    SUPPORTED_PROVIDERS,
+    SUPPORTED_GEMINI_MODELS,
+    SUPPORTED_OLLAMA_MODELS,
+)
+from src.llm import get_llm_provider
 
 st.set_page_config(
     page_title="AeroAgent · BRVA 智慧簽派與遙測考核系統",
@@ -29,6 +38,157 @@ if "messages" not in st.session_state:
 
 # Sidebar
 with st.sidebar:
+    st.header("⚙️ 參數設定與模型選型 (Config & Model)")
+
+    gem_key_missing = (not config.GEMINI_API_KEY or config.GEMINI_API_KEY.startswith("your_"))
+    expand_config = gem_key_missing and config.LLM_PROVIDER in ("gemini", "auto")
+
+    with st.expander("🛠️ 調整模型選型與 API 參數", expanded=expand_config):
+        provider_options = ["gemini", "ollama", "offline", "auto"]
+        curr_provider = config.LLM_PROVIDER if config.LLM_PROVIDER in provider_options else "auto"
+        selected_provider = st.selectbox(
+            "🤖 LLM 核心模型選型",
+            provider_options,
+            index=provider_options.index(curr_provider),
+            format_func=lambda x: {
+                "gemini": "Google Gemini (推薦，雲端高性能)",
+                "ollama": "Ollama (本機 / 區網主機)",
+                "offline": "Offline (確定性離線規則，免金鑰)",
+                "auto": "Auto (自動依優先度偵測)"
+            }.get(x, x),
+            key="cfg_provider_select"
+        )
+
+        gemini_key_val = config.GEMINI_API_KEY
+        gemini_model_val = config.GEMINI_MODEL
+        ollama_url_val = config.OLLAMA_BASE_URL
+        ollama_model_val = config.OLLAMA_MODEL
+
+        if selected_provider in ("gemini", "auto"):
+            gemini_key_val = st.text_input(
+                "🔑 Google Gemini API Key",
+                value=config.GEMINI_API_KEY,
+                type="password",
+                help="Google Cloud / AI Studio 之 Gemini API Key",
+                key="cfg_gemini_key_input"
+            )
+            
+            gemini_model_options = SUPPORTED_GEMINI_MODELS + ["自訂模型 (Custom)..."]
+            curr_g_idx = 0
+            if config.GEMINI_MODEL in SUPPORTED_GEMINI_MODELS:
+                curr_g_idx = SUPPORTED_GEMINI_MODELS.index(config.GEMINI_MODEL)
+            else:
+                curr_g_idx = len(SUPPORTED_GEMINI_MODELS)
+                
+            selected_g_model = st.selectbox(
+                "🎯 Gemini 模型版本",
+                gemini_model_options,
+                index=curr_g_idx,
+                key="cfg_gemini_model_select"
+            )
+            if selected_g_model == "自訂模型 (Custom)...":
+                gemini_model_val = st.text_input(
+                    "自訂 Gemini 模型名稱",
+                    value=config.GEMINI_MODEL if config.GEMINI_MODEL not in SUPPORTED_GEMINI_MODELS else "gemini-2.5-flash",
+                    key="cfg_gemini_custom_model_input"
+                )
+            else:
+                gemini_model_val = selected_g_model
+
+        if selected_provider in ("ollama", "auto"):
+            ollama_url_val = st.text_input(
+                "🌐 Ollama 主機網址",
+                value=config.OLLAMA_BASE_URL,
+                help="例如 http://localhost:11434 或區網 http://192.168.1.x:11434",
+                key="cfg_ollama_url_input"
+            )
+            ollama_model_options = SUPPORTED_OLLAMA_MODELS + ["自訂模型 (Custom)..."]
+            curr_o_idx = 0
+            if config.OLLAMA_MODEL in SUPPORTED_OLLAMA_MODELS:
+                curr_o_idx = SUPPORTED_OLLAMA_MODELS.index(config.OLLAMA_MODEL)
+            else:
+                curr_o_idx = len(SUPPORTED_OLLAMA_MODELS)
+                
+            selected_o_model = st.selectbox(
+                "🎯 Ollama 模型",
+                ollama_model_options,
+                index=curr_o_idx,
+                key="cfg_ollama_model_select"
+            )
+            if selected_o_model == "自訂模型 (Custom)...":
+                ollama_model_val = st.text_input(
+                    "自訂 Ollama 模型名稱",
+                    value=config.OLLAMA_MODEL if config.OLLAMA_MODEL not in SUPPORTED_OLLAMA_MODELS else "llama3",
+                    key="cfg_ollama_custom_model_input"
+                )
+            else:
+                ollama_model_val = selected_o_model
+
+        # Backend Connection
+        st.markdown("---")
+        brva_url_val = st.text_input(
+            "🌐 BRVA API 伺服器網址",
+            value=config.BRVA_API_BASE_URL,
+            key="cfg_brva_url_input"
+        )
+        brva_key_val = st.text_input(
+            "🛡️ BRVA Agent 機器金鑰 (x-agent-key)",
+            value=config.BRVA_AGENT_API_KEY,
+            type="password",
+            help="伺服器端授權金鑰 (x-agent-key)",
+            key="cfg_brva_key_input"
+        )
+
+        save_to_env = st.checkbox("💾 同步儲存至 .env 檔案", value=True, key="cfg_save_env_checkbox")
+
+        col_apply, col_test = st.columns([1, 1])
+        with col_apply:
+            if st.button("🔄 套用設定並重啟", use_container_width=True, key="cfg_apply_btn"):
+                updates = {
+                    "LLM_PROVIDER": selected_provider,
+                    "GEMINI_API_KEY": gemini_key_val.strip(),
+                    "GEMINI_MODEL": gemini_model_val.strip(),
+                    "OLLAMA_BASE_URL": ollama_url_val.strip(),
+                    "OLLAMA_MODEL": ollama_model_val.strip(),
+                    "BRVA_API_BASE_URL": brva_url_val.strip(),
+                    "BRVA_AGENT_API_KEY": brva_key_val.strip(),
+                }
+                update_runtime_config(updates, persist_to_env=save_to_env)
+                
+                # Rebuild LLM provider and agent
+                new_prov = get_llm_provider(
+                    provider_type=selected_provider,
+                    gemini_api_key=gemini_key_val.strip(),
+                    gemini_model=gemini_model_val.strip(),
+                    ollama_base_url=ollama_url_val.strip(),
+                    ollama_model=ollama_model_val.strip(),
+                )
+                st.session_state.agent = AeroAgent(llm_provider=new_prov)
+                backend_client.configure(
+                    base_url=brva_url_val.strip(),
+                    api_key=brva_key_val.strip()
+                )
+                st.success("✅ 設定已套用！")
+                st.rerun()
+
+        with col_test:
+            if st.button("🔍 連線健康檢驗", use_container_width=True, key="cfg_test_btn"):
+                with st.spinner("檢驗中..."):
+                    prov = getattr(st.session_state.agent, "llm", None)
+                    if prov:
+                        p_ok, p_msg = prov.test_connection()
+                        if p_ok:
+                            st.success(f"🟢 LLM: {p_msg}")
+                        else:
+                            st.error(f"🔴 LLM: {p_msg}")
+                    b_ok, b_msg = backend_client.test_connection()
+                    if b_ok:
+                        st.success(f"🟢 後端: {b_msg}")
+                    else:
+                        st.warning(f"🟡 後端: {b_msg}")
+
+    st.divider()
+
     st.header("🔑 飛官帳號連結 (CrewCenter Link)")
     
     # Mode B: Token input linking
@@ -129,8 +289,15 @@ with st.sidebar:
     st.markdown("### 📋 系統狀態")
     provider_name = getattr(st.session_state.agent.llm, "provider_name", "unknown").upper()
     model_name = getattr(st.session_state.agent.llm, "model_name", "default")
-    st.markdown(f"• **LLM 核心引擎**：`{provider_name}` (`{model_name}`)")
+    st.markdown(f"• **LLM 核心選型**：`{provider_name}` (`{model_name}`)")
+    st.markdown(f"• **Gemini Key**：`{mask_secret(config.GEMINI_API_KEY)}`")
+    st.markdown(f"• **BRVA 伺服器**：`{config.BRVA_API_BASE_URL}`")
+    st.markdown(f"• **BRVA Agent Key**：`{mask_secret(config.BRVA_AGENT_API_KEY)}`")
     st.info("✅ ReAct 決策引擎：就緒\n\n✅ 身分委託授權鏈：就緒\n\n✅ 14 大航空與 CrewCenter 工具鏈：就緒\n\n✅ 官方規章與 SOP 知識庫：就緒")
+
+# Main Page Notice if Gemini is selected but key is missing
+if config.LLM_PROVIDER == "gemini" and (not config.GEMINI_API_KEY or "your_gemini" in config.GEMINI_API_KEY):
+    st.warning("⚠️ **尚未設定 Google Gemini API Key**：目前模型選型為 Google Gemini，請於左側側邊欄「⚙️ 參數設定與模型選型」輸入您的 API Key，或切換為 Offline 離線免金鑰模式！")
 
 # Display conversation
 for msg in st.session_state.messages:

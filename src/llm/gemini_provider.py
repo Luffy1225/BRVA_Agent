@@ -49,6 +49,44 @@ class GeminiProvider(BaseLLMProvider):
     def is_available(self) -> bool:
         return bool(self.api_key and (self._client is not None or self._legacy_model is not None))
 
+    def update_credentials(self, api_key: str, model_name: Optional[str] = None):
+        """Dynamically reconfigures API key and model name, reinitializing SDK."""
+        self.api_key = api_key.strip() if api_key else ""
+        if model_name:
+            self.model_name = model_name
+        self._client = None
+        self._legacy_model = None
+        self._init_sdk()
+
+    def test_connection(self) -> tuple[bool, str]:
+        """Validates credentials against Gemini API with a lightweight test call."""
+        if not self.api_key or self.api_key == "your_gemini_api_key_here":
+            return False, "Gemini API Key 未設定或為預設佔位符"
+        if not self.is_available():
+            return False, "Gemini SDK 初始化失敗 (請檢查套件依賴)"
+        try:
+            if self._client:
+                resp = self._client.models.generate_content(
+                    model=self.model_name,
+                    contents="Hi"
+                )
+                if resp and hasattr(resp, "text"):
+                    return True, f"連線成功 ({self.model_name})"
+            elif self._legacy_model:
+                resp = self._legacy_model.generate_content("Hi")
+                if resp and hasattr(resp, "text"):
+                    return True, f"連線成功 ({self.model_name})"
+            return False, "無法取得 Gemini 回應"
+        except Exception as e:
+            err_msg = str(e)
+            if "API_KEY_INVALID" in err_msg:
+                return False, "Gemini API Key 無效 (API_KEY_INVALID)"
+            elif "403" in err_msg or "Forbidden" in err_msg:
+                return False, f"存取被拒 (403 Forbidden: 請確認模型名稱或金鑰權限)"
+            elif "404" in err_msg or "NOT_FOUND" in err_msg:
+                return False, f"模型不存在或無法存取 ({self.model_name})"
+            return False, f"連線失敗 ({err_msg[:60]})"
+
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> LLMResponse:
         if not self.is_available():
             return LLMResponse(

@@ -99,5 +99,39 @@ class TestAgentTrace(unittest.TestCase):
         self.assertIn("我是您的 AI 簽派副駕", resp)
         self.assertNotIn("BR184", resp)
 
+    @patch("src.tools.crewcenter_leaderboard_tool.backend_client.get")
+    def test_crewcenter_offline_dynamic_llm_flow(self, mock_get):
+        """Tests that when LLM is active, offline errors are delivered by LLM dynamically with co-pilot persona."""
+        mock_get.return_value = None  # CrewCenter offline
+
+        mock_llm = MagicMock()
+        mock_llm.is_available.return_value = True
+        mock_llm.provider_name = "gemini"
+        from src.llm.base import LLMResponse
+        mock_llm.generate.return_value = LLMResponse(
+            content="報告教官！剛才呼叫簽派資料鏈路連線逾時，主機可能正在維護... 要不要先喝杯咖啡，我們稍後再重新呼叫？本機天氣與 SOP 依然正常！",
+            model="gemini-1.5-flash",
+            provider="gemini"
+        )
+
+        agent_with_llm = AeroAgent(memory=AgentMemory(), llm_provider=mock_llm)
+        resp = agent_with_llm.run("幫我查飛行時數排行榜", user_context=self.auth_user, verbose=False)
+
+        mock_llm.generate.assert_called_once()
+        self.assertIn("報告教官！剛才呼叫簽派資料鏈路連線逾時", resp)
+        self.assertIn("喝杯咖啡", resp)
+
+    @patch("src.tools.crewcenter_leaderboard_tool.backend_client.get")
+    def test_crewcenter_offline_randomized_pool_flow(self, mock_get):
+        """Tests that when LLM is offline, response is selected from the lively aviation co-pilot pool."""
+        mock_get.return_value = None  # CrewCenter offline
+
+        resp = self.agent.run("幫我查飛行時數排行榜", user_context=self.auth_user, verbose=False)
+
+        # Must contain aviation co-pilot elements and offline assistance alternatives
+        self.assertTrue(any(salutation in resp for salutation in ["報告教官", "報告機長", "教官好"]))
+        self.assertIn("CrewCenter", resp)
+        self.assertIn("METAR", resp)
+
 if __name__ == "__main__":
     unittest.main()
