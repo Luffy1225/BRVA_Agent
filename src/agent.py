@@ -152,53 +152,105 @@ class AeroAgent:
             return final_resp
 
         # -------------------------------------------------------------
+        # 4. Pure Weather / METAR Query Check (純氣象查詢，不觸發航線簽派)
+        # -------------------------------------------------------------
+        weather_keywords = ["天氣", "metar", "風向", "風速", "氣象", "側風", "weather"]
+        is_weather_intent = any(k in user_text.lower() for k in weather_keywords)
+
+        flight_dispatch_keywords = [
+            "飛往", "推薦班次", "推薦航班", "推薦班機", "簽派", "航網", "航線", "航路",
+            "開 b78x", "開 b77w", "開 a321", "開 787", "開 777", "開 321",
+            "到成田", "到rjaa", "到關西", "到rjbb", "到香港", "到vhhh", "到松山", "到rcss"
+        ]
+        is_flight_dispatch = any(k in user_text.lower() for k in flight_dispatch_keywords)
+
+        airport_map = {
+            "桃園": "RCTP", "RCTP": "RCTP",
+            "成田": "RJAA", "RJAA": "RJAA",
+            "關西": "RJBB", "RJBB": "RJBB",
+            "香港": "VHHH", "VHHH": "VHHH",
+            "赤鱲角": "VHHH",
+            "松山": "RCSS", "RCSS": "RCSS",
+            "台北": "RCSS",
+            "高雄": "RCKH", "RCKH": "RCKH",
+            "小港": "RCKH",
+            "羽田": "RJTT", "RJTT": "RJTT",
+            "東京": "RJAA",
+            "大阪": "RJBB",
+            "新加坡": "WSSS", "WSSS": "WSSS",
+            "樟宜": "WSSS",
+        }
+
+        found_icaos = [m.group(0).upper() for m in re.finditer(r'\b[A-Za-z]{4}\b', user_text)]
+        valid_icaos = [code for code in found_icaos if code in airport_map or code.startswith("R") or code.startswith("V") or code.startswith("W")]
+
+        # Case A: 純氣象查詢 (例如 "幫我查一下 RCTP天氣", "成田氣象", "VHHH METAR")
+        if is_weather_intent and not is_flight_dispatch and len(valid_icaos) < 2:
+            target_icao = "RCTP"
+            for name, code in airport_map.items():
+                if name.lower() in user_text.lower():
+                    target_icao = code
+                    break
+            if valid_icaos:
+                target_icao = valid_icaos[0]
+
+            # Dynamic runway extraction (default to airport's primary runway)
+            default_runways = {
+                "RCTP": "05L", "RCSS": "10", "RCKH": "09",
+                "RJAA": "16R", "RJBB": "06R", "RJTT": "34R",
+                "VHHH": "07L", "WSSS": "02L"
+            }
+            target_rwy = default_runways.get(target_icao, "16R")
+            rwy_match = re.search(r'(\d{2}[LRC]?)\s*跑道|跑道\s*(\d{2}[LRC]?)', user_text, re.IGNORECASE)
+            if rwy_match:
+                target_rwy = (rwy_match.group(1) or rwy_match.group(2)).upper()
+
+            if verbose:
+                print(f"\n[🤖 Agent 決策] 識別為純氣象查詢，目標機場: {target_icao}，預計起降跑道: {target_rwy}...")
+                print(f"[🔍 Tool Call] -> fetch_aviation_weather(icao='{target_icao}', runway='{target_rwy}')")
+
+            weather = fetch_aviation_weather(target_icao, target_rwy)
+
+            if verbose:
+                print(f"[📥 Observation] -> {target_icao} 即時 METAR 取得成功，{target_rwy} 跑道側風分量 {weather.get('crosswind_kts')} 節\n")
+
+            final_resp = (
+                f"報告機長，為您取得 {target_icao} 機場即時航空氣象簡報：\n\n"
+                f"• 【即時 METAR 報文】：\n"
+                f"  `{weather.get('raw_metar')}`\n\n"
+                f"• 【跑道風向與起降安全評估 ({target_rwy} 跑道)】：\n"
+                f"  - 風向與風速：{weather.get('wind_dir')}° / {weather.get('wind_speed_kts')} 節\n"
+                f"  - 跑道側風分量：約 {weather.get('crosswind_kts')} 節\n"
+                f"  - 正逆風分量：{'逆風' if weather.get('headwind_kts', 0) >= 0 else '順風'}約 {abs(weather.get('headwind_kts', 0))} 節\n"
+                f"  - 適航判定：{'✅ 在安全操作包絡線 (30 kts) 內，適航' if weather.get('is_safe') else '⚠️ 超出安全包絡線，請評估重飛或備降'}\n\n"
+                f"• 【防禦性操作提醒】：{weather.get('risk_assessment')}"
+            )
+            self.memory.add_message("assistant", final_resp)
+            return final_resp
+
+        # -------------------------------------------------------------
         # 5. Route Recommendation & Weather Dispatch Planning Check
         # -------------------------------------------------------------
-        flight_keywords = [
-            "飛往", "開 ", "班次", "航班", "簽派", "航線", "航路", "天氣", "跑道", "風向", "metar", "風速",
-            "rctp", "rjaa", "rjbb", "vhhh", "rcss", "rckh", "桃園", "成田", "關西", "香港", "松山", "高雄",
-            "b78x", "b77w", "a321", "a339", "b789"
-        ]
-        has_flight_intent = any(k in user_text.lower() for k in flight_keywords)
-
-        if has_flight_intent:
-            # 1. Dynamic Airport Extraction (ICAO or City Name)
-            airport_map = {
-                "桃園": "RCTP", "RCTP": "RCTP",
-                "成田": "RJAA", "RJAA": "RJAA",
-                "關西": "RJBB", "RJBB": "RJBB",
-                "香港": "VHHH", "VHHH": "VHHH",
-                "松山": "RCSS", "RCSS": "RCSS",
-                "高雄": "RCKH", "RCKH": "RCKH",
-                "羽田": "RJTT", "RJTT": "RJTT",
-                "新加坡": "WSSS", "WSSS": "WSSS",
-            }
-
+        if is_flight_dispatch or len(valid_icaos) >= 2:
             dep = "RCTP"
             arr = "RJAA"
-
-            # Check 4-letter ICAO patterns
-            found_icaos = [m.group(0).upper() for m in re.finditer(r'\b[A-Za-z]{4}\b', user_text)]
-            valid_icaos = [code for code in found_icaos if code in airport_map or code.startswith("R") or code.startswith("V") or code.startswith("W")]
 
             if len(valid_icaos) >= 2:
                 dep = valid_icaos[0]
                 arr = valid_icaos[1]
             elif len(valid_icaos) == 1:
-                # If only one ICAO found, decide if it's dep or arr
                 if any(w in user_text for w in ["飛往", "到", "降落", "目的地"]):
                     arr = valid_icaos[0]
                 else:
                     dep = valid_icaos[0]
             else:
-                # Check city names
                 for name, code in airport_map.items():
                     if f"從{name}" in user_text or f"由{name}" in user_text or f"在{name}" in user_text:
                         dep = code
                     elif f"往{name}" in user_text or f"到{name}" in user_text or f"至{name}" in user_text:
                         arr = code
 
-            # 2. Dynamic Aircraft Extraction
+            # Dynamic Aircraft Extraction
             aircraft = "B78X"
             ac_matches = re.findall(r'\b(B78X|B77W|A321|A339|B789|B777|A350|787|777|321)\b', user_text, re.IGNORECASE)
             if ac_matches:
@@ -212,8 +264,13 @@ class AeroAgent:
                 else:
                     aircraft = raw_ac
 
-            # 3. Dynamic Runway Extraction
-            target_rwy = "16R" if arr == "RJAA" else ("05L" if arr == "RCTP" else "10")
+            # Dynamic Runway Extraction
+            default_runways = {
+                "RCTP": "05L", "RCSS": "10", "RCKH": "09",
+                "RJAA": "16R", "RJBB": "06R", "RJTT": "34R",
+                "VHHH": "07L", "WSSS": "02L"
+            }
+            target_rwy = default_runways.get(arr, "16R")
             rwy_match = re.search(r'(\d{2}[LRC]?)\s*跑道|跑道\s*(\d{2}[LRC]?)', user_text, re.IGNORECASE)
             if rwy_match:
                 target_rwy = (rwy_match.group(1) or rwy_match.group(2)).upper()
@@ -264,15 +321,33 @@ class AeroAgent:
         if self.llm and self.llm.is_available() and self.llm.provider_name != "offline":
             try:
                 resp = self.llm.generate(prompt=user_text, system_prompt=SYSTEM_PROMPT)
-                if resp and resp.content and not resp.content.startswith("⚠️"):
+                if resp and resp.content:
+                    if resp.content.startswith("⚠️"):
+                        final_resp = (
+                            f"⚠️ 【LLM 連線異常】\n"
+                            f"目前無法連線至指定的 AI 模型 ({self.llm.provider_name})：\n"
+                            f"{resp.content}\n\n"
+                            f"👉 請檢查網路連線或 .env 中的 API KEY 設定。\n\n"
+                            f"報告機長，我是您的 AI 簽派副駕。請告訴我您的具體飛行需求，例如：\n"
+                            f"• 氣象查詢：「幫我查一下 RCTP天氣」或「RJAA 16R 天氣」\n"
+                            f"• 航網簽派：「我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣與推薦班次」\n"
+                            f"• 規章與 SOP：「請問雙發客機的發動機啟動順序與滑行速限是多少？」\n"
+                            f"• 考核規章：「術科實作考核中，哪些重大違規情事會直接觸發一票否決？」\n"
+                            f"• 黑盒子審核：「請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄」"
+                        )
+                        self.memory.add_message("assistant", final_resp)
+                        return final_resp
                     final_resp = resp.content
                     self.memory.add_message("assistant", final_resp)
                     return final_resp
-            except Exception:
-                pass
+            except Exception as e:
+                final_resp = f"⚠️ 【LLM 執行異常】: {e}"
+                self.memory.add_message("assistant", final_resp)
+                return final_resp
 
         final_resp = (
             "報告機長，我是您的 AI 簽派副駕。請告訴我您的具體飛行需求，例如：\n\n"
+            "• 氣象查詢：「幫我查一下 RCTP天氣」或「RJAA 16R 天氣」\n"
             "• 航網簽派：「我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣與推薦班次」\n"
             "• 規章與 SOP：「請問雙發客機的發動機啟動順序與滑行速限是多少？」\n"
             "• 考核規章：「術科實作考核中，哪些重大違規情事會直接觸發一票否決？」\n"

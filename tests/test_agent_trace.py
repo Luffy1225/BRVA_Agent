@@ -1,12 +1,13 @@
 import unittest
 from src.agent import AeroAgent
 from src.memory import AgentMemory
+from src.llm import OfflineRuleProvider
 
 class TestAgentTrace(unittest.TestCase):
 
     def setUp(self):
         self.memory = AgentMemory()
-        self.agent = AeroAgent(memory=self.memory)
+        self.agent = AeroAgent(memory=self.memory, llm_provider=OfflineRuleProvider())
 
     def test_two_turn_dispatch_flow(self):
         # Turn 1: Flight and Weather Query

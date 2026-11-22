@@ -45,6 +45,9 @@ with st.sidebar:
 
     st.divider()
     st.markdown("### 📋 系統狀態")
+    provider_name = getattr(st.session_state.agent.llm, "provider_name", "unknown").upper()
+    model_name = getattr(st.session_state.agent.llm, "model_name", "default")
+    st.markdown(f"• **LLM 核心引擎**：`{provider_name}` (`{model_name}`)")
     st.info("✅ ReAct 決策引擎：就緒\n\n✅ 5 大航空工具鏈 (含 RAG)：就緒\n\n✅ 官方 SOP 知識庫：就緒\n\n✅ Podman 容器規範：符合")
 
 # Display conversation
@@ -69,6 +72,9 @@ if user_prompt:
     with st.chat_message("assistant"):
         with st.spinner("🤖 AeroAgent 正在規劃工具鏈與分析氣象中..."):
             response = st.session_state.agent.run(user_prompt, verbose=False)
-            st.markdown(response)
+            if response.startswith("⚠️"):
+                st.error(response)
+            else:
+                st.markdown(response)
 
     st.session_state.messages.append({"role": "assistant", "content": response})
