@@ -12,6 +12,9 @@ from src.config import (
 )
 from src.llm import get_llm_provider
 
+# Official Test Pilot Delegation Token (AgenticTesting / Senior Captain EVA001)
+OFFICIAL_TEST_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI4ODg4MTc5NTM2MDg2ODc2NDEwIiwidHlwZSI6ImRlbGVnYXRpb24iLCJzY29wZXMiOlsiZGlzcGF0Y2giLCJwcm9maWxlOnJlYWQiLCJzdG9yZTpyZWFkIiwicm91dGVzIl0sInRva2VuVmVyc2lvbiI6MSwiaWF0IjoxNzk1MzY5NTMxfQ.7pB5-bHLE2WmNElbwvGIczOJs6LenQTBvL2Rpbu3Kwk"
+
 st.set_page_config(
     page_title="BRVA Agent · 智慧簽派與遙測考核系統",
     page_icon="✈️",
@@ -250,7 +253,6 @@ with st.sidebar:
     
     # Mode B: Token input linking
     ctx = st.session_state.user_context
-    OFFICIAL_TEST_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI4ODg4MTc5NTM2MDg2ODc2NDEwIiwidHlwZSI6ImRlbGVnYXRpb24iLCJzY29wZXMiOlsiZGlzcGF0Y2giLCJwcm9maWxlOnJlYWQiLCJzdG9yZTpyZWFkIiwicm91dGVzIl0sInRva2VuVmVyc2lvbiI6MSwiaWF0IjoxNzk1MzY5NTMxfQ.7pB5-bHLE2WmNElbwvGIczOJs6LenQTBvL2Rpbu3Kwk"
 
     if ctx.is_authenticated:
         st.success(
