@@ -29,5 +29,8 @@ USER aero
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Default to interactive CLI (can be overridden by podman run arguments)
-CMD ["python", "-m", "src.ui.cli"]
+# Expose Streamlit default port
+EXPOSE 8501
+
+# 預設啟動 Streamlit 視覺化網頁儀表板 (若需 CLI 模式可覆蓋指令: python -m src.ui.cli)
+CMD ["python", "-m", "streamlit", "run", "src/ui/web.py", "--server.port=8501", "--server.address=0.0.0.0"]

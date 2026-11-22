@@ -13,4 +13,4 @@ services:
       - "8501:8501"
     stdin_open: true
     tty: true
-    command: ["python", "-m", "src.ui.cli"]
+    command: ["python", "-m", "streamlit", "run", "src/ui/web.py", "--server.port=8501", "--server.address=0.0.0.0"]

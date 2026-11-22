@@ -28,24 +28,21 @@ python scripts/demo_test_suite.py
 
 ---
 
-### 方式 B：Podman 容器執行 (符合課程容器化強制標準 🐳)
+### 方式 B：Podman 容器執行 (建置與啟動視覺化網頁儀表板 🐳)
 ```bash
-# 1. 複製環境設定 (預設可直接執行離線展示模式，無須付費 Key)
+# 1. 複製環境設定 (預設即可直接執行離線模式，無須付費 Key)
 cp .env.example .env
 
 # 2. 建置 Podman 映像檔
 podman build -t brva-agent:v1 -f Containerfile .
 
-# 3. 進入終端機交談模式 (CLI 模式，推薦評分使用)
-podman run -it --rm --env-file .env brva-agent:v1
+# 3. 啟動 Streamlit 視覺化網頁儀表板
+podman run -d --rm -p 8501:8501 --env-file .env brva-agent:v1
 
-# 4. (選配) 啟動 Streamlit 視覺化網頁儀表板
-podman run -d --rm -p 8501:8501 --env-file .env brva-agent:v1 python -m streamlit run src/ui/web.py
-# 於瀏覽器開啟 http://localhost:8501
-
-# 5. 於容器內執行完整測試集
-podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
+# 4. 於瀏覽器開啟即可開始使用
+# http://localhost:8501
 ```
+*(亦可使用 `podman compose up --build` 一鍵建置並啟動)*
 
 ---
 
@@ -256,17 +253,18 @@ python -m unittest discover tests
 
 **測試執行結果**：
 ```text
-..............................................
-----------------------------------------------------------------------
-Ran 46 tests in 1.060s
+Ran 79 tests in 1.047s
 
 OK
 ```
-**46 項單元測試 100% 全數通過**：
-- 工具運算與防護：18 項測試（風向三角函數、黑盒子過載/超速滑動視窗、離線/已認證簽派）
+**79 項單元測試 100% 全數通過**：
+- 工具運算與防護：28 項測試（風向三角函數、黑盒子過載/超速滑動視窗、離線/已認證簽派、排行榜、行事曆、背包、藝廊、雷達追蹤）
 - Aviation RAG 知識庫：9 項測試（BM25 檢索、引文標籤生成、章節過濾）
 - LLM 多供應商抽象層：8 項測試（Ollama、Gemini、Offline 確定性回退）
-- 後端 API 安全管控與飛官授權委派：11 項測試（API Key 鑑別、503 Killswitch、429 Rate Limit、Token 驗證、個人檔案查詢、商城唯讀防護）
+- 後端 API 安全管控與飛官授權委派：12 項測試（API Key 鑑別、503 Killswitch、429 Rate Limit、Token 驗證、個人檔案查詢、商城唯讀防護）
+- CLI 與參數設定精靈：8 項測試
+- Agent 決策追蹤 (ReAct Trace)：8 項測試
+- Podman 容器化標準與編排：6 項測試
 
 ---
 
@@ -305,7 +303,5 @@ BRVA_Agent/
 │   │   ├── user_profile_tool.py # 飛官個人檔案與時數點數
 │   │   └── store_catalog_tool.py # 飛官商城唯讀目錄
 │   └── ui/                    # CLI 與 Streamlit Web 雙模式介面
-└── tests/                     # 46 項自動化單元測試套件
-│   └── ui/                    # CLI 與 Streamlit Web 雙模式介面
-└── tests/                     # 41 項自動化測試套件
+└── tests/                     # 79 項自動化單元測試套件
 ```
