@@ -124,14 +124,40 @@ with st.sidebar:
             else:
                 ollama_model_val = selected_o_model
 
-        # Backend Connection (Advanced / Collapsed by default)
+        # Backend Connection (Advanced Selectbox / Collapsed by default)
         with st.expander("🛠️ 進階伺服器連線設定 (非必要免填)", expanded=False):
-            brva_url_val = st.text_input(
+            url_options = [
+                "https://api.eva-virtual.com",
+                "http://localhost:3000",
+                "自訂網址 (Custom)..."
+            ]
+            curr_url = config.BRVA_API_BASE_URL.rstrip("/")
+            if curr_url == "http://localhost:3000":
+                curr_url_idx = 1
+            elif curr_url in ("https://api.eva-virtual.com", ""):
+                curr_url_idx = 0
+            else:
+                curr_url_idx = 2
+
+            selected_url_choice = st.selectbox(
                 "🌐 BRVA API 伺服器網址",
-                value=config.BRVA_API_BASE_URL,
-                help="線上正式站: https://api.eva-virtual.com | 本機開發: http://localhost:3000 (結尾有無 /api 皆自動相容)",
-                key="cfg_brva_url_input"
+                url_options,
+                index=curr_url_idx,
+                format_func=lambda x: {
+                    "https://api.eva-virtual.com": "1. 線上正式站 (https://api.eva-virtual.com)",
+                    "http://localhost:3000": "2. 本地開發端 (http://localhost:3000)",
+                    "自訂網址 (Custom)...": "3. 自訂網址 (手動輸入)"
+                }.get(x, x),
+                key="cfg_brva_url_select"
             )
+            if selected_url_choice == "自訂網址 (Custom)...":
+                brva_url_val = st.text_input(
+                    "自訂後端網址",
+                    value=config.BRVA_API_BASE_URL,
+                    key="cfg_brva_custom_url_input"
+                )
+            else:
+                brva_url_val = selected_url_choice
 
         save_to_env = st.checkbox("💾 同步儲存至 .env 檔案", value=True, key="cfg_save_env_checkbox")
 
@@ -197,15 +223,26 @@ with st.sidebar:
             if curr_ctx and curr_ctx.is_authenticated:
                 st.success(
                     f"🟢 **3. 飛官身分 (CrewCenter)**\n\n"
-                    f"成功讀取到飛官資訊：`{curr_ctx.callsign}` 機長\n\n"
+                    f"成功讀取到飛官資訊：`{curr_ctx.callsign}` 機長 (`{curr_ctx.username}`)\n\n"
                     f"• 階級：`{curr_ctx.rank_name}` ｜ 點數：`{curr_ctx.points:,.0f} pts` ｜ 總時數：`{curr_ctx.flight_time_hours:,.1f} h`"
                 )
             else:
-                st.info(
-                    "🟡 **3. 飛官身分 (CrewCenter)**\n\n"
-                    "目前為 **訪客模式 (未連結飛官帳號)**。\n\n"
-                    "💡 **提示**：未連結帳號也能 **100% 正常使用** 公開航網班次、即時氣象 (METAR)、側風分量計算、飛行員排行榜與民航規章 SOP！"
-                )
+                pilot_token_to_test = st.session_state.get("pilot_token_box", OFFICIAL_TEST_TOKEN)
+                val_res = temp_client.verify_token(pilot_token_to_test) if pilot_token_to_test else None
+                if val_res and val_res.get("valid") and val_res.get("user"):
+                    u = val_res["user"]
+                    st.success(
+                        f"🟢 **3. 飛官身分 (CrewCenter)**\n\n"
+                        f"成功讀取到飛官資訊：`{u.get('callsign', 'PILOT')}` 機長 (`{u.get('username', 'Pilot')}`)\n\n"
+                        f"• 階級：`{u.get('rankName', 'First Officer')}` ｜ 點數：`{float(u.get('points') or 0):,.0f} pts` ｜ 總時數：`{float(u.get('flightTimeHours') or 0):,.1f} h`\n\n"
+                        f"*(點擊下方【⚡ 一鍵引用】或【🔗 驗證並連結】即可套用至會話)*"
+                    )
+                else:
+                    st.info(
+                        "🟡 **3. 飛官身分 (CrewCenter)**\n\n"
+                        "目前為 **訪客模式 (未連結飛官帳號)**。\n\n"
+                        "💡 **提示**：未連結帳號也能 **100% 正常使用** 公開航網班次、即時氣象 (METAR)、側風分量計算、飛行員排行榜與民航規章 SOP！"
+                    )
 
     st.divider()
 
@@ -213,9 +250,11 @@ with st.sidebar:
     
     # Mode B: Token input linking
     ctx = st.session_state.user_context
+    OFFICIAL_TEST_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI4ODg4MTc5NTM2MDg2ODc2NDEwIiwidHlwZSI6ImRlbGVnYXRpb24iLCJzY29wZXMiOlsiZGlzcGF0Y2giLCJwcm9maWxlOnJlYWQiLCJzdG9yZTpyZWFkIiwicm91dGVzIl0sInRva2VuVmVyc2lvbiI6MSwiaWF0IjoxNzk1MzY5NTMxfQ.7pB5-bHLE2WmNElbwvGIczOJs6LenQTBvL2Rpbu3Kwk"
+
     if ctx.is_authenticated:
         st.success(
-            f"🟢 **已連結飛官：{ctx.callsign}**\n\n"
+            f"🟢 **已連結飛官：{ctx.callsign} ({ctx.username})**\n\n"
             f"• 階級：`{ctx.rank_name}` ｜ 點數：`{ctx.points:,.0f} pts`\n\n"
             f"• 總飛行時數：`{ctx.flight_time_hours:,.1f} h`"
         )
@@ -224,23 +263,37 @@ with st.sidebar:
             st.info("已解除帳號連結，恢復訪客模式。")
             st.rerun()
     else:
-        st.caption("👤 目前為訪客模式 (可查公開航網、氣象、規章與排行榜)")
-        if st.button("⚡ 一鍵體驗飛官身分 (EVA001 測試帳號)", use_container_width=True, type="secondary"):
-            st.session_state.user_context = UserContext(
-                is_authenticated=True,
-                user_id="user_eva_888",
-                callsign="EVA001",
-                username="Captain EVA",
-                rank_name="Senior Captain",
-                points=2500.0,
-                flight_time_hours=480.5,
-                delegation_token="mock_pilot_token_eva001",
-                scopes=["flight:read", "flight:dispatch", "pilot:profile", "store:read"]
-            )
-            st.success("✅ 已一鍵切換至 EVA001 測試飛官！")
-            st.rerun()
+        st.caption("👤 目前為訪客模式 (可直接查公開航網、氣象、規章與排行榜)")
 
-        token_input = st.text_input("🔑 CrewCenter 授權碼 / Token (選填)", type="password", key="pilot_token_box", placeholder="貼上 CrewCenter 授權碼...")
+        if st.button("⚡ 一鍵引用官方測試授權碼 (免手動複製)", use_container_width=True, type="primary"):
+            with st.spinner("向伺服器驗證並載入官方測試帳號..."):
+                val_res = backend_client.verify_token(OFFICIAL_TEST_TOKEN)
+                if val_res and val_res.get("valid") and val_res.get("user"):
+                    u = val_res["user"]
+                    st.session_state.user_context = UserContext(
+                        is_authenticated=True,
+                        user_id=str(u.get("userId")),
+                        callsign=u.get("callsign", "PILOT"),
+                        username=u.get("username", "Pilot"),
+                        rank_name=u.get("rankName", "First Officer"),
+                        points=float(u.get("points") or 0.0),
+                        flight_time_hours=float(u.get("flightTimeHours") or 0.0),
+                        delegation_token=OFFICIAL_TEST_TOKEN,
+                        scopes=u.get("scopes") or ["dispatch", "profile:read", "store:read", "routes"]
+                    )
+                    st.success(f"✅ 成功一鍵連結飛官：{u.get('callsign')} ({u.get('username')})！")
+                    st.rerun()
+                else:
+                    err = val_res.get("error") if val_res else "無法連線至 BRVA API 伺服器"
+                    st.error(f"❌ 授權碼驗證失敗：{err}。請確認後端連線狀態與帳號權限。")
+
+        token_input = st.text_input(
+            "🔑 CrewCenter 授權碼 / Token",
+            value=OFFICIAL_TEST_TOKEN,
+            type="password",
+            key="pilot_token_box",
+            help="系統已為您預先填入官方測試授權碼，點擊下方【🔗 驗證並連結】即可直接登入；亦可手動貼入您個人的授權碼。"
+        )
         
         col1, col2 = st.columns([1, 1])
         with col1:
@@ -255,22 +308,55 @@ with st.sidebar:
                             st.session_state.user_context = UserContext(
                                 is_authenticated=True,
                                 user_id=str(u.get("userId")),
-                                callsign=u.get("callsign"),
-                                username=u.get("username"),
-                                rank_name=u.get("rankName"),
-                                points=float(u.get("points") or 0),
-                                flight_time_hours=float(u.get("flightTimeHours") or 0),
+                                callsign=u.get("callsign", "PILOT"),
+                                username=u.get("username", "Pilot"),
+                                rank_name=u.get("rankName", "First Officer"),
+                                points=float(u.get("points") or 0.0),
+                                flight_time_hours=float(u.get("flightTimeHours") or 0.0),
                                 delegation_token=token_input.strip(),
-                                scopes=u.get("scopes") or []
+                                scopes=u.get("scopes") or ["dispatch", "profile:read", "store:read", "routes"]
                             )
-                            st.success(f"✅ 成功連結飛官：{u.get('callsign')}！")
+                            st.success(f"✅ 成功連結飛官：{u.get('callsign')} ({u.get('username')})！")
                             st.rerun()
-                        elif val_res is None or val_res.get("_offline") or val_res.get("_status_code") in (500, 502, 503, 504):
-                            st.error("⚠️ 目前似乎無法連線到 CrewCenter 伺服器（連線逾時或伺服器維護中），請稍後再次嘗試。")
                         else:
-                            st.error("❌ 授權碼無效或已過期，請確認後重試。")
+                            err = val_res.get("error") if val_res else "無法連線至後端伺服器或授權碼無效"
+                            st.error(f"❌ 授權碼驗證失敗：{err}")
         with col2:
-            st.link_button("🌐 取得授權碼", "https://crewcenter.eva-virtual.com", use_container_width=True)
+            st.link_button("🌐 前往 CrewCenter", "https://crewcenter.eva-virtual.com", use_container_width=True)
+
+    # CrewCenter Test Credentials Card & 20-Point Overview
+    st.markdown("---")
+    st.markdown("#### 🌐 CrewCenter 飛官中心入口")
+    st.link_button("🚀 直接進入 CrewCenter 登入首頁", "https://crewcenter.eva-virtual.com", use_container_width=True)
+    st.info(
+        "👨‍✈️ **官方測試機長帳號：**\n\n"
+        "• 測試帳號 (Username)：`AgenticTesting`\n\n"
+        "• 測試密碼 (Password)：`!1TestAgent`"
+    )
+
+    with st.expander("💡 什麼是 CrewCenter 飛官中心？ (20 大特色速覽)", expanded=False):
+        st.markdown("""
+1. **飛行員營運中樞**：CrewCenter 是長榮虛擬航空 (EVA Air Virtual) 核心的數位化航務與飛行員管理平台。
+2. **專屬個人座艙**：每位長榮虛擬機長均擁有獨立的飛行檔案，記錄完整的航空職涯數據。
+3. **國際級 SimBrief 整合**：一鍵向 SimBrief 與簽派中心發起航班，自動產出專業民航標準 OFP 飛行計畫。
+4. **全航網即時在空雷達**：整合 Live Radar，隨時在地圖上追蹤全球正在執飛的長榮與立榮機隊航跡。
+5. **黑盒子 PIREP 自動審核**：飛行結束後系統自動解析遙測數據，嚴格評審接地垂直速度 (fpm) 與過載 G 值。
+6. **完整飛行生涯履歷**：精確記錄總飛行時數、起降架次、安全飛行率以及歷史飛行航線。
+7. **階級考核晉升體系**：涵蓋從二副 (Second Officer) 到資深機長 (Senior Captain) 的嚴謹升等考核指標。
+8. **機長專屬飛行商城**：可用執飛累積的哩程飛行積分 (Points) 兌換全球自由包機特許卡與彩繪機塗裝。
+9. **官方每週精選航線 (ROTW)**：每週推出 Route of the Week 與多人聯飛活動行事曆，豐富航網探索。
+10. **飛行員影音藝廊**：供全體機組人員上傳分享高空巡航美景與降落進場的精采航空寫真。
+11. **全域時數與點數排行榜**：即時更新月度與年度飛官榜單，打造高水準的虛擬民航社群良性競賽。
+12. **LIVE 機隊預約保護**：每位機師最多可保留 3 架航機席位，並具備智慧調機與航班指派機制。
+13. **斷線落地保護機制 (Wait Landing)**：遭遇網路異常時自動觸發 60~300 分鐘機長保護鎖，守護飛行成果。
+14. **2D 線上航管管制中心**：提供即時 ATC 席位狀態（地面 GND、塔臺 TWR、進場 APP、離場 DEP）。
+15. **全球機場 METAR 即時氣象**：自動計算起降跑道之正逆風與側風分量，提供超限操作預警。
+16. **AI 身分委託授權憑證 (Token)**：支援生成永久密鑰，委託 BRVA Agent 代理機長查詢資料與快速簽派。
+17. **銀行級資安與版本控管**：採用 JWT 身分鑑權與 TokenVersion 機制，保障飛官帳號與點數資產絕對安全。
+18. **Discord SSO 快速單一簽入**：與官方社群身分組全面連動，即時同步考驗及職級榮譽標籤。
+19. **跨平台極致響應式體驗**：全面適配桌上型電腦、平板與手機瀏覽器，隨時掌握長榮機隊脈動。
+20. **AI Agent 的最強數據大腦**：作為 BRVA Agent 核心後端數據庫，為 AI 副駕駛提供毫秒級的權威航務數據！
+        """)
 
     st.divider()
 

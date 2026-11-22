@@ -118,12 +118,25 @@ class TestCliConfigAndWizard(unittest.TestCase):
         ctx = UserContext()
         self.assertFalse(ctx.is_authenticated)
 
-        # 1. Test Demo Pilot Shortcut
-        resp = agent.run("請幫我切換測試飛官", user_context=ctx, verbose=False)
-        self.assertIn("EVA001", resp)
-        self.assertTrue(ctx.is_authenticated)
-        self.assertEqual(ctx.callsign, "EVA001")
-        self.assertEqual(ctx.points, 2500.0)
+        # 1. Test Demo Pilot Shortcut with backend mock
+        with patch("src.client.backend_client.verify_token") as mock_verify:
+            mock_verify.return_value = {
+                "valid": True,
+                "user": {
+                    "userId": "8888179536086876410",
+                    "callsign": "EVA001",
+                    "username": "AgenticTesting",
+                    "rankName": "Senior Captain",
+                    "points": 2500.0,
+                    "flightTimeHours": 480.5,
+                    "scopes": ["dispatch", "profile:read", "store:read", "routes"]
+                }
+            }
+            resp = agent.run("請幫我切換測試飛官", user_context=ctx, verbose=False)
+            self.assertIn("EVA001", resp)
+            self.assertTrue(ctx.is_authenticated)
+            self.assertEqual(ctx.callsign, "EVA001")
+            self.assertEqual(ctx.points, 2500.0)
 
 
 if __name__ == "__main__":

@@ -121,27 +121,38 @@ class BRVAAgent:
         # 0. In-Chat Pilot Linking & Demo Pilot Switch
         # -------------------------------------------------------------
         if any(w in user_text for w in ["切換測試飛官", "體驗飛官", "一鍵登入", "登入測試飛官", "載入測試飛官", "demo pilot"]):
-            if user_context is not None:
-                user_context.is_authenticated = True
-                user_context.user_id = "user_eva_888"
-                user_context.callsign = "EVA001"
-                user_context.username = "Captain EVA"
-                user_context.rank_name = "Senior Captain"
-                user_context.points = 2500.0
-                user_context.flight_time_hours = 480.5
-                user_context.delegation_token = "mock_pilot_token_eva001"
-                user_context.scopes = ["flight:read", "flight:dispatch", "pilot:profile", "store:read"]
-            resp = (
-                "👨‍✈️ **已為您一鍵切換至測試飛官身分！**\n\n"
-                "• 呼號：`EVA001`\n"
-                "• 階級：`Senior Captain`\n"
-                "• 點數：`2,500 pts`\n"
-                "• 累計飛行時數：`480.5 h`\n"
-                "• 狀態：🟢 已通過身分委託鑑權\n\n"
-                "現在您可以自由測試『查我的點數』、『簽派放行』、『查看個人背包』等個人化功能！"
-            )
-            self.memory.add_message("assistant", resp)
-            return resp
+            official_demo_token = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOiI4ODg4MTc5NTM2MDg2ODc2NDEwIiwidHlwZSI6ImRlbGVnYXRpb24iLCJzY29wZXMiOlsiZGlzcGF0Y2giLCJwcm9maWxlOnJlYWQiLCJzdG9yZTpyZWFkIiwicm91dGVzIl0sInRva2VuVmVyc2lvbiI6MSwiaWF0IjoxNzk1MzY5NTMxfQ.7pB5-bHLE2WmNElbwvGIczOJs6LenQTBvL2Rpbu3Kwk"
+            from src.client import backend_client
+            val_res = backend_client.verify_token(official_demo_token)
+            if val_res and val_res.get("valid") and val_res.get("user"):
+                u = val_res["user"]
+                if user_context is not None:
+                    user_context.is_authenticated = True
+                    user_context.user_id = str(u.get("userId"))
+                    user_context.callsign = u.get("callsign", "PILOT")
+                    user_context.username = u.get("username", "Pilot")
+                    user_context.rank_name = u.get("rankName", "First Officer")
+                    user_context.points = float(u.get("points") or 0)
+                    user_context.flight_time_hours = float(u.get("flightTimeHours") or 0)
+                    user_context.delegation_token = official_demo_token
+                    user_context.scopes = u.get("scopes") or ["dispatch", "profile:read", "store:read", "routes"]
+                resp = (
+                    f"👨‍✈️ **已為您一鍵切換至官方測試飛官身分！**\n\n"
+                    f"• 呼號：`{getattr(user_context, 'callsign', u.get('callsign'))}`\n"
+                    f"• 姓名：`{getattr(user_context, 'username', u.get('username'))}`\n"
+                    f"• 階級：`{getattr(user_context, 'rank_name', u.get('rankName'))}`\n"
+                    f"• 點數：`{getattr(user_context, 'points', 0):,.0f} pts`\n"
+                    f"• 累計飛行時數：`{getattr(user_context, 'flight_time_hours', 0):,.1f} h`\n"
+                    f"• 狀態：🟢 已自伺服器成功讀取真實飛官資料\n\n"
+                    f"現在您可以自由測試『查我的點數』、『簽派放行』、『查看個人背包』等個人化功能！"
+                )
+                self.memory.add_message("assistant", resp)
+                return resp
+            else:
+                err_msg = val_res.get("error") if val_res else "無法連線至後端伺服器"
+                resp = f"⚠️ 無法取得測試飛官身分：{err_msg}。請確認後端 API 伺服器是否正常運行。"
+                self.memory.add_message("assistant", resp)
+                return resp
 
         import re
         link_match = re.search(r"(?:連結飛官|登入飛官|綁定飛官|token\s*[:：])\s*([a-zA-Z0-9_\-\.]+)", user_text, re.IGNORECASE)
