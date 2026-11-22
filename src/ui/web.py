@@ -1,6 +1,7 @@
 import os
 import html
 import json
+from typing import Optional, Dict, Any, List
 import streamlit as st
 from src.agent import BRVAAgent, AeroAgent
 from src.context import UserContext
@@ -550,6 +551,179 @@ def render_trace_expander(trace: list, expanded: bool = True):
         if html_blocks:
             st.markdown("".join(html_blocks), unsafe_allow_html=True)
 
+def render_simbrief_ofp_card(simbrief_data: Dict[str, Any]):
+    """Renders a dedicated, highly-structured graphical Operational Flight Plan (OFP) card."""
+    if not simbrief_data or not isinstance(simbrief_data, dict):
+        return
+
+    flt = simbrief_data.get("flight_number") or "EVA"
+    dep = simbrief_data.get("dep_icao") or ""
+    arr = simbrief_data.get("arr_icao") or ""
+    actype = simbrief_data.get("aircraft_type") or "B78X"
+    pilot = simbrief_data.get("pilot") or "Pilot"
+    is_internal = simbrief_data.get("is_internal", False)
+
+    if is_internal:
+        st.markdown(
+            f"""
+            <div style="margin: 12px 0; border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 10px; background: rgba(6, 78, 59, 0.15); padding: 12px 16px;">
+                <div style="font-weight: 700; color: #34d399; font-size: 1.05em; margin-bottom: 6px;">
+                    📋 BRVA CrewCenter 內部簽派放行單
+                </div>
+                <div style="font-size: 0.9em; color: #cbd5e1; line-height: 1.6;">
+                    • 執飛航班：<b>{flt}</b> ｜ 執飛飛官：<code>{pilot}</code><br/>
+                    • 航線起訖：<b>{dep} 🛫 ➔ {arr} 🛬</b> ｜ 機型：<code>{actype}</code><br/>
+                    • 放行狀態：<span style="color: #34d399; font-weight: bold;">✅ 已核准 (ACTIVE DISPATCH)</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        return
+
+    # Full SimBrief Card Layout
+    route_map = simbrief_data.get("route_map_url")
+    profile_map = simbrief_data.get("profile_map_url")
+    pdf_url = simbrief_data.get("pdf_url")
+    dep_rwy = simbrief_data.get("dep_rwy") or "05R"
+    arr_rwy = simbrief_data.get("arr_rwy") or "34L"
+    cruise_alt = simbrief_data.get("cruise_alt") or "FL390"
+    fuel = simbrief_data.get("fuel") or {}
+    weights = simbrief_data.get("weights") or {}
+    env = simbrief_data.get("environment") or {}
+    route = simbrief_data.get("route") or f"{dep} DCT {arr}"
+    ci = simbrief_data.get("cost_index") or "45"
+    alt_icao = simbrief_data.get("alternate_icao") or "RJTT"
+    alt_name = simbrief_data.get("alternate_name") or ""
+    time_enroute = simbrief_data.get("est_time_enroute") or "02:30"
+    block_time = simbrief_data.get("est_block_time") or "03:00"
+
+    # Container with high-tech cockpit aesthetic
+    st.markdown(
+        f"""
+        <div style="margin-top: 14px; margin-bottom: 8px; border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 12px; background: linear-gradient(135deg, rgba(6, 78, 59, 0.22) 0%, rgba(15, 23, 42, 0.6) 100%); padding: 14px 18px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 1.3em;">✈️</span>
+                    <div>
+                        <span style="font-weight: 700; color: #10b981; font-size: 1.1em; letter-spacing: 0.5px;">
+                            SimBrief 營運飛行計畫書 (OFP Release)
+                        </span>
+                        <div style="font-size: 0.82em; color: #94a3b8;">
+                            呼號：<b>{flt}</b> ｜ 機型：<b>{actype}</b> ｜ 起訖：<b>{dep} ➔ {arr}</b> ｜ 飛官：<b>{pilot}</b>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <span style="background: rgba(16, 185, 129, 0.25); border: 1px solid #10b981; color: #6ee7b7; padding: 3px 10px; border-radius: 20px; font-size: 0.78em; font-weight: 600; text-transform: uppercase;">
+                        ● ACTIVE DISPATCH
+                    </span>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    col_left, col_right = st.columns([1, 1], gap="medium")
+
+    with col_left:
+        st.markdown("<div style='font-size: 0.9em; font-weight: 600; color: #38bdf8; margin-bottom: 6px;'>🗺️ Navigraph 航路圖 (Route Map)</div>", unsafe_allow_html=True)
+        if route_map:
+            st.image(route_map, caption=f"SimBrief Route Map · {flt} ({dep} ➔ {arr})", use_container_width=True)
+        else:
+            st.info("🗺️ 航圖生成中或暫無圖片預覽")
+
+        if profile_map:
+            with st.expander("📈 查看垂直巡航剖面圖 (Vertical Profile)", expanded=False):
+                st.image(profile_map, caption=f"Vertical Profile · {flt}", use_container_width=True)
+
+        if pdf_url:
+            st.link_button("📄 下載 / 檢視完整 SimBrief OFP (PDF)", pdf_url, use_container_width=True)
+
+    with col_right:
+        tab_fuel, tab_times, tab_weights, tab_nav = st.tabs(["⛽ 燃油規劃", "⏱️ 航程時刻", "⚖️ 配載重心", "🧭 航路環境"])
+
+        with tab_fuel:
+            plan_ramp = fuel.get("plan_ramp", 0)
+            burn = fuel.get("enroute_burn", 0)
+            res = fuel.get("reserve", 0)
+            alt_f = fuel.get("alternate_burn", 0)
+            taxi = fuel.get("taxi", 0)
+
+            st.markdown(
+                f"""
+                <div style="font-size: 0.88em; color: #e2e8f0; line-height: 1.8;">
+                    • <b>計畫總油量 (Block Fuel / Plan Ramp)</b>：<span style="color: #34d399; font-weight: 700; font-size: 1.05em;">{plan_ramp:,} kg</span><br/>
+                    • <b>航程耗油 (Enroute Burn / Trip)</b>：<code>{burn:,} kg</code><br/>
+                    • <b>法定儲備油 (Reserve · 30 min)</b>：<code>{res:,} kg</code><br/>
+                    • <b>備降場燃油 (Alternate Burn)</b>：<code>{alt_f:,} kg</code><br/>
+                    • <b>滑行燃油 (Taxi Fuel)</b>：<code>{taxi:,} kg</code>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with tab_times:
+            sched_o = simbrief_data.get("sched_out") or "N/A"
+            sched_i = simbrief_data.get("sched_in") or "N/A"
+            st.markdown(
+                f"""
+                <div style="font-size: 0.88em; color: #e2e8f0; line-height: 1.8;">
+                    • <b>預估飛行時間 (Time Enroute)</b>：<span style="color: #38bdf8; font-weight: 700;">{time_enroute}</span><br/>
+                    • <b>預估區塊時間 (Block Time)</b>：<code>{block_time}</code><br/>
+                    • <b>預定離場時間 (Sched Out)</b>：<code>{sched_o}</code><br/>
+                    • <b>預定抵達時間 (Sched In)</b>：<code>{sched_i}</code>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with tab_weights:
+            payload = weights.get("payload", 0)
+            pax = weights.get("pax_count", 0)
+            cargo = weights.get("cargo", 0)
+            zfw = weights.get("est_zfw", 0)
+            max_zfw = weights.get("max_zfw", 0)
+            tow = weights.get("est_tow", 0)
+            max_tow = weights.get("max_tow", 0)
+            ldw = weights.get("est_ldw", 0)
+            max_ldw = weights.get("max_ldw", 0)
+
+            st.markdown(
+                f"""
+                <div style="font-size: 0.88em; color: #e2e8f0; line-height: 1.8;">
+                    • <b>總商載 (Payload)</b>：<span style="color: #facc15; font-weight: 700;">{payload:,} kg</span>（旅客 {pax} 人 ｜ 貨物 {cargo:,} kg）<br/>
+                    • <b>預估零燃油重 (ZFW)</b>：<code>{zfw:,} kg</code> <span style="color: #94a3b8;">(上限: {max_zfw:,} kg)</span><br/>
+                    • <b>預估起飛總重 (TOW)</b>：<code>{tow:,} kg</code> <span style="color: #94a3b8;">(上限: {max_tow:,} kg)</span><br/>
+                    • <b>預估降落重量 (LDW)</b>：<code>{ldw:,} kg</code> <span style="color: #94a3b8;">(上限: {max_ldw:,} kg)</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+        with tab_nav:
+            wind_dir = env.get("avg_wind_dir", "270")
+            wind_spd = env.get("avg_wind_spd", "0")
+            wind_comp = env.get("avg_wind_comp", "0")
+            gc_d = env.get("gc_distance", "")
+            air_d = env.get("air_distance", "")
+
+            st.markdown(
+                f"""
+                <div style="font-size: 0.88em; color: #e2e8f0; line-height: 1.8;">
+                    • <b>起降跑道</b>：離場 <code>RWY {dep_rwy}</code> 🛫 ➔ 進場 <code>RWY {arr_rwy}</code> 🛬<br/>
+                    • <b>巡航高度</b>：<span style="color: #a78bfa; font-weight: 700;">{cruise_alt}</span> ｜ <b>成本指數</b>：<code>CI {ci}</code><br/>
+                    • <b>航路風向風速</b>：<code>{wind_dir}° / {wind_spd} kts</code> (順風分量: <code>+{wind_comp} kts</code>)<br/>
+                    • <b>航程距離</b>：大圓 <code>{gc_d} NM</code> ｜ 空中 <code>{air_d} NM</code><br/>
+                    • <b>法定備降場</b>：<code>{alt_icao}</code> <span style="color: #94a3b8;">({alt_name})</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            st.caption("🧭 航路指令代碼 (ATC Route):")
+            st.code(route, language="text")
+
 # Display conversation
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -559,6 +733,8 @@ for msg in st.session_state.messages:
             st.error(msg["content"])
         else:
             st.markdown(msg["content"])
+        if msg["role"] == "assistant" and msg.get("ofp_data"):
+            render_simbrief_ofp_card(msg["ofp_data"])
 
 # User input box
 default_prompt = getattr(st.session_state, "prompt_input", "")
@@ -582,6 +758,7 @@ if user_prompt:
                 verbose=False
             )
             trace = st.session_state.agent.get_last_trace()
+            ofp_data = st.session_state.agent.get_last_ofp_info()
 
         render_trace_expander(trace, expanded=True)
         if response.startswith("⚠️"):
@@ -589,4 +766,7 @@ if user_prompt:
         else:
             st.markdown(response)
 
-    st.session_state.messages.append({"role": "assistant", "content": response, "trace": trace})
+        if ofp_data:
+            render_simbrief_ofp_card(ofp_data)
+
+    st.session_state.messages.append({"role": "assistant", "content": response, "trace": trace, "ofp_data": ofp_data})

@@ -23,10 +23,11 @@ class BackendClient:
             headers["Authorization"] = f"Bearer {user_token}"
         return headers
 
-    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, user_token: Optional[str] = None, timeout: Optional[float] = None) -> Optional[Dict[str, Any]]:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        effective_timeout = timeout if timeout is not None else self.timeout
         try:
-            resp = requests.get(url, headers=self._headers(user_token=user_token), params=params, timeout=self.timeout)
+            resp = requests.get(url, headers=self._headers(user_token=user_token), params=params, timeout=effective_timeout)
             if resp.status_code == 200:
                 return resp.json()
             elif resp.status_code == 503:
@@ -45,10 +46,11 @@ class BackendClient:
             print(f"[BackendClient] ⚠️ Network error reaching {url}: {e}")
             return None
 
-    def post(self, endpoint: str, json_data: Optional[Dict[str, Any]] = None, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def post(self, endpoint: str, json_data: Optional[Dict[str, Any]] = None, user_token: Optional[str] = None, timeout: Optional[float] = None) -> Optional[Dict[str, Any]]:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
+        effective_timeout = timeout if timeout is not None else self.timeout
         try:
-            resp = requests.post(url, headers=self._headers(user_token=user_token), json=json_data, timeout=self.timeout)
+            resp = requests.post(url, headers=self._headers(user_token=user_token), json=json_data, timeout=effective_timeout)
             if resp.status_code in (200, 201):
                 return resp.json()
             else:

@@ -51,11 +51,16 @@ class BRVAAgent:
             self.llm = llm_provider or get_llm_provider()
         self.last_trace: List[Dict[str, Any]] = []
         self.current_trace: List[Dict[str, Any]] = []
+        self._last_ofp_info: Optional[Dict[str, Any]] = None
         self._verbose: bool = True
 
     def _reset_trace(self, verbose: bool = True):
         self._verbose = verbose
         self.current_trace = []
+
+    def get_last_ofp_info(self) -> Optional[Dict[str, Any]]:
+        """Returns the SimBrief OFP plan data from the last executed run, if one was generated."""
+        return self._last_ofp_info
 
     def _add_trace_thought(self, title: str, content: str = ""):
         step = {
@@ -184,6 +189,7 @@ class BRVAAgent:
         Collects detailed step trace (thinking, tool calls, observations) for collapsible UI.
         """
         self._reset_trace(verbose=verbose)
+        self._last_ofp_info = None
         user_text = user_input.strip()
         self.memory.add_message("user", user_text)
 
@@ -306,13 +312,18 @@ class BRVAAgent:
                 final_resp = ofp_result.get("summary")
                 return self._finish_run(final_resp, return_trace)
 
-            self._add_trace_observation(f"OFP 產出成功！巡航高度 {ofp_result.get('cruise_altitude') or ofp_result.get('cruise_alt')}，Block Fuel {ofp_result.get('block_fuel_kgs')} kg", result=ofp_result)
-            self._add_trace_thought("簽派核准完成", "清除 Agent Memory 待簽派狀態，發布 Happy Landings 祝福與放行指示。")
+            self._last_ofp_info = ofp_result.get("simbrief_data")
+            if ofp_result.get("status") == "SUCCESS_INTERNAL_DISPATCH":
+                self._add_trace_observation(f"CrewCenter 內部簽派建立成功（航班 {pending.flight_number}）", result=ofp_result)
+                self._add_trace_thought("內部簽派核准完成", "清除 Agent Memory 待簽派狀態，發布內部簽派放行指示。")
+            else:
+                cruise_disp = ofp_result.get("cruise_altitude") or ofp_result.get("cruise_alt") or "FL390"
+                block_fuel = ofp_result.get("block_fuel_kgs") or 20000
+                self._add_trace_observation(f"OFP 產出成功！巡航高度 {cruise_disp}，Block Fuel {block_fuel:,} kg", result=ofp_result)
+                self._add_trace_thought("簽派核准完成", "清除 Agent Memory 待簽派狀態，發布 Happy Landings 祝福與放行指示。")
+
             self.memory.clear_pending()
-            final_resp = (
-                f"{ofp_result['summary']}\n\n"
-                f"祝機長本次飛行平安順利，Happy Landings！"
-            )
+            final_resp = ofp_result.get("summary") or ofp_result.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
@@ -542,6 +553,7 @@ class BRVAAgent:
                 aircraft_type="B78X",
                 user_context=user_context
             )
+            self._last_ofp_info = ofp_result.get("simbrief_data")
             if ofp_result.get("status") == "CREWCENTER_OFFLINE":
                 self._add_trace_observation("⚠️ 簽派中斷：CrewCenter 伺服器連線逾時", result=ofp_result)
                 final_resp = self._format_crewcenter_offline_response("航班放行單簽派", user_text, ofp_result.get("summary"))
