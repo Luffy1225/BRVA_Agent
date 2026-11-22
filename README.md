@@ -7,10 +7,67 @@
 
 ---
 
+## ⚡ 簡易快速執行指南 (Quick Start / 30 秒評分重現)
+
+助教或評審可依環境偏好，任選以下 **三種最簡便方式** 立即啟動與驗證系統：
+
+### 方式 A：一鍵執行全自動端到端測試展示 (E2E Demo Suite，最推薦 ⭐️)
+無須配置外部 API Key，本專案內建確定性離線規則與快取，一鍵全自動展示 6 大航空實戰流程：
+```bash
+python scripts/demo_test_suite.py
+```
+> **展示重點**：
+> 1. 第一輪簽派推薦 + 目的地 METAR 氣象解析 + 跑道側風分量計算
+> 2. 人機協同 (HITL) 授權確認 ➔ 自動向 SimBrief 產出正式 OFP 飛行放行單
+> 3. 黑盒子遙測合格案例審查 (PASS 100分)
+> 4. 黑盒子遙測違規案例審查 (FAIL 滑行超速 + 硬著陸一票否決，零算術幻覺)
+> 5. 異常邊界容錯 (無效 ICAO 代碼與不存在檔案)
+> 6. 官方 SOP、術科考核與 Live 機隊規章 RAG 檢索與權威引文合成
+
+---
+
+### 方式 B：Podman 容器執行 (符合課程容器化強制標準 🐳)
+```bash
+# 1. 複製環境設定 (預設可直接執行離線展示模式，無須付費 Key)
+cp .env.example .env
+
+# 2. 建置 Podman 映像檔
+podman build -t brva-agent:v1 -f Containerfile .
+
+# 3. 進入終端機交談模式 (CLI 模式，推薦評分使用)
+podman run -it --rm --env-file .env brva-agent:v1
+
+# 4. (選配) 啟動 Streamlit 視覺化網頁儀表板
+podman run -d --rm -p 8501:8501 --env-file .env brva-agent:v1 python -m streamlit run src/ui/web.py
+# 於瀏覽器開啟 http://localhost:8501
+
+# 5. 於容器內執行完整測試集
+podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
+```
+
+---
+
+### 方式 C：本機直接執行 (Local Python 3.10+)
+```bash
+# 1. 安裝必要依賴
+pip install -r requirements.txt
+
+# 2. 啟動終端機交談式 Agent (CLI 模式)
+python -m src.ui.cli
+
+# 3. 啟動 Streamlit 網頁儀表板 (Web 模式)
+python -m streamlit run src/ui/web.py
+
+# 4. 執行 41 項全自動單元測試套件
+python -m unittest discover tests
+```
+
+---
+
 ## 一、 專案概述 (Project Overview)
 
 **AeroAgent** 是為長榮虛擬航空（EVA Air Virtual, BRVA）量身打造的專業 AI 飛行簽派與黑盒子遙測考核系統。
-本專案解決了傳統虛擬航空人工審查飛行遙測時序耗時（45~60 分鐘）且易受主觀疲勞影響的痛點，並結合 **確定性 Python 工具運算（Pandas 演算法）與 ReAct 決策循環**，徹底消除大語言模型在長時序浮點數比較時的算術幻覺。
+本專案解決了傳統虛擬航空人工審查飛行遙測時序耗時（45~60 分鐘）且易受主觀疲勞影響的痛點，並結合 **確定性 Python 工具運算（Pandas 向量化演算法）與 ReAct 決策循環**，徹底消除大語言模型在長時序浮點數比較時的算術幻覺。
 
 ### 核心功能亮點：
 1. **多輪目標導向簽派與人機協同 (Human-in-the-Loop, HITL)**：
@@ -29,40 +86,7 @@
 
 ---
 
-## 二、 執行環境與 Podman 容器重現指南 (Reproducibility)
-
-助教無須在本機安裝複雜依賴，只需透過 Podman 即可在 1 分鐘內完成建置與執行：
-
-### 1. 複製設定檔
-```bash
-cp .env.example .env
-# 請編輯 .env 填入您的 GEMINI_API_KEY (預設可直接執行離線展示模式)
-```
-
-### 2. 使用 Podman 建置映像檔
-```bash
-podman build -t brva-agent:v1 -f Containerfile .
-```
-
-### 3. 執行 Agent（終端機互動模式，推薦評分使用）
-```bash
-podman run -it --rm --env-file .env brva-agent:v1
-```
-
-### 4. 啟動 Streamlit 網頁儀表板模式（選配）
-```bash
-podman run -d --rm -p 8501:8501 --env-file .env brva-agent:v1 python -m streamlit run src/ui/web.py
-# 於瀏覽器開啟 http://localhost:8501
-```
-
-### 5. 執行自動化測試集（包含容器健康檢查）
-```bash
-podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
-```
-
----
-
-## 三、 Tool 工具定義 (Tool Definitions)
+## 二、 Tool 工具定義 (Tool Definitions)
 
 本系統依作業二與民航飛行安全規範實作 5 大專業工具，全數定義具體的 Pydantic 輸入/輸出規範與例外處理：
 
@@ -110,7 +134,7 @@ podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
 
 ---
 
-## 四、 Agent 完整執行追蹤 (Execution Trace)
+## 三、 Agent 完整執行追蹤 (Execution Trace)
 
 展示典型的多輪 ReAct 推理與人機協同 (HITL) 流程：
 
@@ -159,7 +183,7 @@ podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
 
 ---
 
-## 五、 失敗情境分析 (Failure Cases Analysis)
+## 四、 失敗情境分析 (Failure Cases Analysis)
 
 符合評分標準必備之兩大失敗情境與工程應對策略：
 
@@ -177,9 +201,9 @@ podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
 
 ---
 
-## 六、 自動化測試證據 (Verification Evidence)
+## 五、 自動化測試證據 (Verification Evidence)
 
-本專案具備完整的自動化單元測試，涵蓋三角函數計算、航線匹配、OFP 產生、黑盒子超速/硬著陸、RAG 知識庫檢索與權威引文合成、多供應商 LLM 抽象層 (Ollama/Gemini/Offline)、多輪 ReAct 軌跡以及 Podman 容器化標準建置檢測：
+本專案具備完整的自動化單元測試，涵蓋三角函數計算、航線匹配、OFP 產生、黑盒子超速/硬著陸、RAG 知識庫檢索與權威引文合成、多供應商 LLM 抽象層 (Ollama/Gemini/Offline)、後端 API Key 與 Master Killswitch 管控，以及 Podman 容器化標準建置檢測：
 
 ```bash
 python -m unittest discover tests
@@ -187,12 +211,43 @@ python -m unittest discover tests
 
 **測試執行結果**：
 ```text
-.................................
+.........................................
 ----------------------------------------------------------------------
-Ran 33 tests in 0.247s
+Ran 41 tests in 0.660s
 
 OK
 ```
-33 項單元測試（含 8 項 LLM 抽象層測試與 9 項 RAG 專項檢索測試）100% 全數通過，展現了強大的工程品質與系統穩定性。
-#   B R V A _ A g e n t  
- 
+**41 項單元測試 100% 全數通過**：
+- 工具運算與防護：16 項測試（風向三角函數、黑盒子過載/超速滑動視窗）
+- Aviation RAG 知識庫：9 項測試（BM25 檢索、引文標籤生成、章節過濾）
+- LLM 多供應商抽象層：8 項測試（Ollama、Gemini、Offline 確定性回退）
+- 後端 API 安全管控：8 項測試（API Key 鑑別、503 Killswitch、429 Rate Limit）
+
+---
+
+## 六、 專案目錄結構 (Project Structure)
+
+```text
+BRVA_Agent/
+├── Containerfile              # Podman 容器建置規範檔
+├── podman-compose.yml         # 容器化編排設定
+├── requirements.txt           # Python 必要依賴清單
+├── README.md                  # 專案說明與作業評分規格文件
+├── .env.example               # 環境變數範本檔
+├── data/                      # 測試遙測數據與民航規章知識庫
+│   ├── sample_flight_pass.csv # 考試合格遙測樣本 (100分)
+│   ├── sample_flight_fail.csv # 考試違規遙測樣本 (超速/硬著陸)
+│   ├── local_fallback_routes.csv # 離線備用長榮航網庫
+│   └── knowledge/             # SOP、Live 規章與術科檢定手冊
+├── scripts/
+│   └── demo_test_suite.py     # 一鍵全自動 6 大實戰流程展示腳本
+├── src/
+│   ├── agent.py               # ReAct 決策循環與 Human-in-the-Loop
+│   ├── client.py              # 後端 API 通訊客戶端 (支援 x-agent-key)
+│   ├── config.py              # 全域參數與環境變數載入
+│   ├── memory.py              # 多輪對話與待簽派狀態記憶體
+│   ├── llm/                   # 抽象層 (Ollama / Gemini / Offline)
+│   ├── tools/                 # 5 大確定性航空專業工具
+│   └── ui/                    # CLI 與 Streamlit Web 雙模式介面
+└── tests/                     # 41 項自動化測試套件
+```
