@@ -14,6 +14,7 @@ from src.tools import (
     analyze_flight_telemetry,
     query_flight_sop_and_regulations,
     query_pilot_profile,
+    search_pilot_user,
     query_store_catalog,
     query_leaderboard,
     query_calendar_events,
@@ -23,6 +24,11 @@ from src.tools import (
     query_live_radar_and_tracker,
     query_pilot_pireps,
     query_active_dispatch,
+    query_atc_status,
+    query_atc_mentoring_eligibility,
+    query_live_overview,
+    query_codeshare_partners,
+    recommend_routes_and_codeshares,
 )
 from src.llm import BaseLLMProvider, get_llm_provider
 
@@ -34,6 +40,7 @@ SYSTEM_PROMPT = """你是由長榮航空虛擬航空 (EVA Air Virtual / BRVA) �
 4. 當機師確認簽派時，呼叫簽派工具生成正式 SimBrief OFP 飛行計畫。
 5. 擔任黑盒子考核官：審查飛行遙測 CSV 紀錄，客觀抓出超速與接地 G 值違規。
 6. 提供全方位 CrewCenter 整合：排行榜、官方活動行事曆與每週精選航線 (ROTW)、飛官個人檔案與飛行紀錄 (PIREP)、背包道具庫 (嚴格唯讀，無權使用或消耗道具)、影音藝廊，以及即時航跡雷達與在空班機追蹤。
+7. 支援航管與航網營運：搜尋飛官帳號與呼號、ATC 等級與距離下一級差距、/atc/mentoring 培訓 5 大條件資格審查、/live/overview 機隊即時總覽、Codeshare 聯營夥伴數量與聯營航線推薦。
 
 請保持專業、幹練的民航飛行通聯語氣，使用台灣民航標準用語（如：進場、塔台、側風分量、平飄、接地）。
 每次需要外部數據或官方規章時，主動呼叫相關工具。"""
@@ -365,6 +372,161 @@ class BRVAAgent:
                 final_resp = self._format_crewcenter_offline_response("飛官個人檔案與數據查詢", user_text, res.get("summary"))
             else:
                 self._add_trace_observation(f"飛官數據取得完畢 (呼號: {res.get('callsign')}, 點數: {res.get('points')} pts, 時數: {res.get('flight_time_hours')} h)", result=res)
+                final_resp = res.get("summary") or res.get("summary_text", "")
+            return self._finish_run(final_resp, return_trace)
+
+        # -------------------------------------------------------------
+        # 1B1. Search Pilot by Callsign or Username (搜尋某個 user / callsign)
+        # -------------------------------------------------------------
+        search_pilot_patterns = [
+            "搜尋", "搜尋某個", "查某個", "找某個", "查飛官", "搜尋飛官", "找飛官", "查使用者", "搜尋使用者",
+            "搜尋呼號", "查呼號", "飛官資料", "飛官檔案", "誰是"
+        ]
+        has_search_action = any(k in user_text for k in search_pilot_patterns) and any(w in user_text.lower() for w in ["飛官", "使用者", "呼號", "機長", "user", "callsign", "eva", "pilot"])
+        direct_callsign_search = bool(re.search(r'(?:搜尋|查詢|找|查)?\s*(?:飛官|機師|使用者|呼號)?\s*(EVA\s*\d+[A-Z]*|EVA[A-Z0-9_\-]+)', user_text, re.IGNORECASE)) and any(w in user_text for w in ["查", "搜尋", "找", "是誰", "檔案", "資料", "callsign", "user"])
+
+        if (has_search_action or direct_callsign_search) and not any(k in user_text for k in ["我的", "查我的", "排行榜", "在空", "雷達", "簽派", "執飛", "開"]):
+            # Extract search keyword
+            kw_match = re.search(r'(?:搜尋|查詢|找|查)?\s*(?:飛官|機師|使用者|帳號|呼號)?\s*[:：]?\s*([a-zA-Z0-9_\-]+)', user_text, re.IGNORECASE)
+            search_target = kw_match.group(1).strip() if kw_match else "EVA001"
+            if search_target.lower() in ["飛官", "使用者", "呼號", "機長", "user", "callsign"]:
+                search_target = user_text.split()[-1] if len(user_text.split()) > 1 else "EVA001"
+
+            self._add_trace_thought("飛官名冊與呼號檢索", f"識別為飛官資料搜尋 (關鍵字/呼號: '{search_target}')，向 CrewCenter 查詢名冊與執飛資格")
+            self._add_trace_tool_call("search_pilot_user", f"search_pilot_user(keyword='{search_target}')")
+
+            res = search_pilot_user(keyword=search_target, user_context=user_context)
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 飛官資料庫連線逾時", result=res)
+                final_resp = self._format_crewcenter_offline_response("飛官帳號與呼號查詢", user_text, res.get("summary"))
+            else:
+                self._add_trace_observation(f"檢索完畢，找到 {res.get('count', 0)} 位符合之飛官", result=res)
+                final_resp = res.get("summary") or res.get("summary_text", "")
+            return self._finish_run(final_resp, return_trace)
+
+        # -------------------------------------------------------------
+        # 1B2. ATC Controller Status & Rank Progress (ATC rank / 距離下一個等級還多久)
+        # -------------------------------------------------------------
+        atc_status_keywords = [
+            "atc rank", "atc 等級", "atc等級", "航管等級", "管制等級", "管制員等級",
+            "atc 時數", "atc時數", "atc 執勤", "管制執勤", "下一個等級", "下一等級",
+            "下一級", "距離下一個", "距離下一級", "升等進度", "晉升進度", "管制架次", "還差多久", "還差多少"
+        ]
+        is_atc_status_query = any(k in user_text.lower() for k in atc_status_keywords) and any(w in user_text.lower() for w in ["atc", "航管", "管制", "rank", "等級"]) and not any(m in user_text.lower() for m in ["mentoring", "受訓", "培訓", "資格", "條件", "申請", "滿足"])
+        if is_atc_status_query:
+            self._add_trace_thought("航管員等級與晉升差距評估", "識別為 ATC 席位管制等級、執勤時數與下一等級門檻差距查詢")
+            self._add_trace_tool_call("query_atc_status", "query_atc_status()")
+
+            res = query_atc_status(user_context=user_context)
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 航管資料庫連線逾時", result=res)
+                final_resp = self._format_crewcenter_offline_response("ATC 管制等級與晉升進度查詢", user_text, res.get("summary"))
+            else:
+                self._add_trace_observation(f"取得航管等級：{res.get('current_rank')} (達成率: {res.get('progress_percent')}%)", result=res)
+                final_resp = res.get("summary") or res.get("summary_text", "")
+            return self._finish_run(final_resp, return_trace)
+
+        # -------------------------------------------------------------
+        # 1B3. ATC Mentoring Prerequisites & Eligibility (/atc/mentoring 條件是否滿足)
+        # -------------------------------------------------------------
+        mentoring_keywords = [
+            "/atc/mentoring", "mentoring", "受訓", "培訓條件", "受訓條件", "培訓資格", "受訓資格",
+            "指導資格", "指導條件", "管制培訓", "航管培訓", "能否受訓", "是否滿足", "申請培訓", "atc 培訓"
+        ]
+        is_mentoring_query = any(k in user_text.lower() for k in mentoring_keywords) and any(w in user_text.lower() for w in ["mentoring", "受訓", "培訓", "指導", "條件", "資格", "滿足", "atc"])
+        if is_mentoring_query:
+            self._add_trace_thought("ATC Mentoring 受訓資格審查", "識別為 ATC 導師制度與學員培訓 5 大條件資格審查 (/atc/mentoring)")
+            self._add_trace_tool_call("query_atc_mentoring_eligibility", "query_atc_mentoring_eligibility()")
+
+            res = query_atc_mentoring_eligibility(user_context=user_context)
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 培訓資料庫連線逾時", result=res)
+                final_resp = self._format_crewcenter_offline_response("ATC Mentoring 培訓條件審查", user_text, res.get("summary"))
+            else:
+                status_tag = "符合資格" if res.get("can_apply") else "未滿足條件"
+                self._add_trace_observation(f"培訓資格審查完畢 (判定: {status_tag})", result=res)
+                final_resp = res.get("summary") or res.get("summary_text", "")
+            return self._finish_run(final_resp, return_trace)
+
+        # -------------------------------------------------------------
+        # 1B4. Live Fleet & Operations Overview (/live/overview)
+        # -------------------------------------------------------------
+        live_overview_keywords = [
+            "/live/overview", "live 模式", "live模式", "機隊總覽", "在線機隊", "在線總覽",
+            "live 總覽", "live總覽", "機隊狀態", "機隊規模", "航機分佈", "在空機隊總覽", "機隊概況"
+        ]
+        if any(k in user_text.lower() for k in live_overview_keywords):
+            self._add_trace_thought("LIVE 機隊營運總覽解析", "識別為長榮虛擬航空 LIVE 機隊即時在線總覽 (/live/overview) 查詢")
+            self._add_trace_tool_call("query_live_overview", "query_live_overview()")
+
+            res = query_live_overview(user_context=user_context)
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ LIVE 伺服器連線逾時", result=res)
+                final_resp = self._format_crewcenter_offline_response("LIVE 機隊營運總覽查詢", user_text, res.get("summary"))
+            else:
+                self._add_trace_observation(f"取得 LIVE 機隊總覽 (在空: {res.get('in_flight_count')} 架 ｜ 總規模: {res.get('total_fleet')} 架)", result=res)
+                final_resp = res.get("summary") or res.get("summary_text", "")
+            return self._finish_run(final_resp, return_trace)
+
+        # -------------------------------------------------------------
+        # 1B5. Codeshare Network & Route Recommendations (有幾個codeshare / 推薦航線)
+        # -------------------------------------------------------------
+        codeshare_count_keywords = [
+            "有幾個 codeshare", "有幾個codeshare", "有幾家 codeshare", "有幾家codeshare",
+            "有哪些 codeshare", "有哪些codeshare", "codeshare 夥伴", "codeshare 合作",
+            "聯營夥伴", "聯營合作", "合作夥伴", "星空聯盟夥伴", "codeshare 有哪些"
+        ]
+        if any(k in user_text.lower() for k in codeshare_count_keywords):
+            self._add_trace_thought("聯營合作夥伴總數檢索", "識別為星空聯盟與 Codeshare 聯營合作航空公司總數與清單查詢")
+            self._add_trace_tool_call("query_codeshare_partners", "query_codeshare_partners()")
+
+            res = query_codeshare_partners(user_context=user_context)
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 聯營航空公司資料庫連線逾時", result=res)
+                final_resp = self._format_crewcenter_offline_response("Codeshare 聯營夥伴查詢", user_text, res.get("summary"))
+            else:
+                self._add_trace_observation(f"取得聯營合作夥伴資料 (共 {res.get('total_codeshare_partners', 0)} 家夥伴航空公司)", result=res)
+                final_resp = res.get("summary") or res.get("summary_text", "")
+            return self._finish_run(final_resp, return_trace)
+
+        route_recommend_keywords = [
+            "推薦航線", "推薦航班", "推薦班次", "推薦幾條", "推薦個航線", "有什麼航線", "有什麼航班",
+            "某 codeshare", "某codeshare", "codeshare 航線", "codeshare航線", "聯營航線", "聯營航班",
+            "ana 航線", "全日空航線", "星空聯盟航線", "聯合航空航線", "新航航線", "新加坡航空航線",
+            "長程航線", "短程航線", "熱門航線", "推薦想飛", "想飛哪", "不知道飛哪"
+        ]
+        is_route_rec = any(k in user_text.lower() for k in route_recommend_keywords)
+        is_specific_flight_query = any(w in user_text for w in ["飛往", "前往", "目的地天氣", "側風風險", "預計開"])
+        if is_route_rec and not is_specific_flight_query and not any(d in user_text for d in ["簽派 BR", "簽派BR", "直接簽派"]):
+            cat = None
+            al = None
+            u_low = user_text.lower()
+            if "ana" in u_low or "全日空" in u_low:
+                al = "ANA"
+            elif "ua" in u_low or "united" in u_low or "聯合" in u_low:
+                al = "United"
+            elif "sq" in u_low or "新加坡" in u_low or "新航" in u_low:
+                al = "Singapore Airlines"
+            elif "codeshare" in u_low or "聯營" in u_low:
+                cat = "codeshare"
+            elif "長程" in u_low or "跨洋" in u_low:
+                cat = "long"
+            elif "短程" in u_low or "區域" in u_low:
+                cat = "short"
+            elif "貨機" in u_low or "貨運" in u_low:
+                cat = "cargo"
+            else:
+                cat = "popular"
+
+            self._add_trace_thought("精選航線與聯營推薦", f"識別為航網推薦查詢 (類別: {cat or '一般'}, 航空公司: {al or '全航網'})")
+            self._add_trace_tool_call("recommend_routes_and_codeshares", f"recommend_routes_and_codeshares(category={repr(cat)}, airline={repr(al)})")
+
+            res = recommend_routes_and_codeshares(category=cat, airline=al, user_context=user_context)
+            if res.get("status") == "CREWCENTER_OFFLINE":
+                self._add_trace_observation("⚠️ 航網推薦資料庫連線逾時", result=res)
+                final_resp = self._format_crewcenter_offline_response("精選航線與聯營推薦", user_text, res.get("summary"))
+            else:
+                self._add_trace_observation(f"成功產出 {res.get('recommended_count', 0)} 條精選推薦航線", result=res)
                 final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 

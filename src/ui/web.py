@@ -452,6 +452,21 @@ with st.sidebar:
         if st.button("💰 查詢點數餘額與個人檔案", use_container_width=True):
             st.session_state.prompt_input = "幫我查我的點數與個人檔案"
 
+        if st.button("🔍 搜尋飛官帳號與呼號 (EVA001)", use_container_width=True):
+            st.session_state.prompt_input = "搜尋飛官 EVA001 的資料與飛行檔案"
+
+        if st.button("🎧 查詢 ATC 管制等級與晉升差距", use_container_width=True):
+            st.session_state.prompt_input = "查詢我的 ATC rank 與距離下一個等級還多久"
+
+        if st.button("🎓 檢查 ATC Mentoring 受訓資格", use_container_width=True):
+            st.session_state.prompt_input = "檢查我是否滿足 /atc/mentoring 的培訓條件？"
+
+        if st.button("🌐 查看 LIVE 機隊總覽 (/live/overview)", use_container_width=True):
+            st.session_state.prompt_input = "查詢 /live/overview Live 模式機隊總覽與營運狀態"
+
+        if st.button("🤝 查詢 Codeshare 夥伴與聯營航線", use_container_width=True):
+            st.session_state.prompt_input = "長榮航空現在有幾個 codeshare 夥伴？推薦幾條 ANA 聯營航線"
+
 # Main Page Notice if Gemini is selected but key is missing
 if config.LLM_PROVIDER == "gemini" and (not config.GEMINI_API_KEY or "your_gemini" in config.GEMINI_API_KEY):
     st.warning("⚠️ **尚未設定 Google Gemini API Key**：目前模型選型為 Google Gemini，請於左側側邊欄「⚙️ 參數設定與模型選型」輸入您的 API Key，或切換為 Offline 離線免金鑰模式！")

@@ -3,7 +3,7 @@ from src.tools.route_tool import query_virtual_routes
 from src.tools.simbrief_tool import generate_simbrief_dispatch
 from src.tools.telemetry_tool import analyze_flight_telemetry
 from src.tools.rag_tool import query_flight_sop_and_regulations
-from src.tools.user_profile_tool import query_pilot_profile
+from src.tools.user_profile_tool import query_pilot_profile, search_pilot_user
 from src.tools.store_catalog_tool import query_store_catalog
 from src.tools.crewcenter_leaderboard_tool import query_leaderboard
 from src.tools.crewcenter_calendar_tool import query_calendar_events, query_events_and_rotw
@@ -11,6 +11,9 @@ from src.tools.crewcenter_inventory_tool import query_pilot_inventory
 from src.tools.crewcenter_gallery_tool import query_media_gallery
 from src.tools.crewcenter_tracker_tool import query_live_radar_and_tracker
 from src.tools.crewcenter_pirep_tool import query_pilot_pireps, query_active_dispatch
+from src.tools.crewcenter_atc_tool import query_atc_status, query_atc_mentoring_eligibility
+from src.tools.crewcenter_live_tool import query_live_overview
+from src.tools.crewcenter_codeshare_tool import query_codeshare_partners, recommend_routes_and_codeshares
 
 ALL_TOOLS = [
     fetch_aviation_weather,
@@ -19,6 +22,7 @@ ALL_TOOLS = [
     analyze_flight_telemetry,
     query_flight_sop_and_regulations,
     query_pilot_profile,
+    search_pilot_user,
     query_store_catalog,
     query_leaderboard,
     query_calendar_events,
@@ -28,6 +32,11 @@ ALL_TOOLS = [
     query_live_radar_and_tracker,
     query_pilot_pireps,
     query_active_dispatch,
+    query_atc_status,
+    query_atc_mentoring_eligibility,
+    query_live_overview,
+    query_codeshare_partners,
+    recommend_routes_and_codeshares,
 ]
 
 TOOL_REGISTRY = {
@@ -37,6 +46,7 @@ TOOL_REGISTRY = {
     "analyze_flight_telemetry": analyze_flight_telemetry,
     "query_flight_sop_and_regulations": query_flight_sop_and_regulations,
     "query_pilot_profile": query_pilot_profile,
+    "search_pilot_user": search_pilot_user,
     "query_store_catalog": query_store_catalog,
     "query_leaderboard": query_leaderboard,
     "query_calendar_events": query_calendar_events,
@@ -46,4 +56,9 @@ TOOL_REGISTRY = {
     "query_live_radar_and_tracker": query_live_radar_and_tracker,
     "query_pilot_pireps": query_pilot_pireps,
     "query_active_dispatch": query_active_dispatch,
+    "query_atc_status": query_atc_status,
+    "query_atc_mentoring_eligibility": query_atc_mentoring_eligibility,
+    "query_live_overview": query_live_overview,
+    "query_codeshare_partners": query_codeshare_partners,
+    "recommend_routes_and_codeshares": recommend_routes_and_codeshares,
 }
