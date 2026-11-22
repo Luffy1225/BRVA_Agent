@@ -598,24 +598,35 @@ def render_simbrief_ofp_card(simbrief_data: Dict[str, Any]):
     time_enroute = simbrief_data.get("est_time_enroute") or "02:30"
     block_time = simbrief_data.get("est_block_time") or "03:00"
 
-    # Container with high-tech cockpit aesthetic
+    # Container with high-tech cockpit aesthetic and legible typography
     st.markdown(
         f"""
-        <div style="margin-top: 14px; margin-bottom: 8px; border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 12px; background: linear-gradient(135deg, rgba(6, 78, 59, 0.22) 0%, rgba(15, 23, 42, 0.6) 100%); padding: 14px 18px;">
+        <style>
+        button[data-baseweb="tab"] p {{
+            font-size: 1.05rem !important;
+            font-weight: 600 !important;
+        }}
+        button[data-baseweb="tab"] {{
+            font-size: 1.05rem !important;
+            font-weight: 600 !important;
+            padding: 6px 14px !important;
+        }}
+        </style>
+        <div style="margin-top: 14px; margin-bottom: 10px; border: 1px solid rgba(16, 185, 129, 0.45); border-radius: 12px; background: linear-gradient(135deg, rgba(6, 78, 59, 0.22) 0%, rgba(15, 23, 42, 0.6) 100%); padding: 14px 18px;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <span style="font-size: 1.3em;">✈️</span>
+                    <span style="font-size: 1.4em;">✈️</span>
                     <div>
-                        <span style="font-weight: 700; color: #10b981; font-size: 1.1em; letter-spacing: 0.5px;">
+                        <span style="font-weight: 700; color: #10b981; font-size: 1.2em; letter-spacing: 0.5px;">
                             SimBrief 營運飛行計畫書 (OFP Release)
                         </span>
-                        <div style="font-size: 0.82em; color: #94a3b8;">
-                            呼號：<b>{flt}</b> ｜ 機型：<b>{actype}</b> ｜ 起訖：<b>{dep} ➔ {arr}</b> ｜ 飛官：<b>{pilot}</b>
+                        <div style="font-size: 0.95em; color: #94a3b8; margin-top: 2px;">
+                            呼號：<b style="color: #f1f5f9;">{flt}</b> ｜ 機型：<b style="color: #f1f5f9;">{actype}</b> ｜ 起訖：<b style="color: #f1f5f9;">{dep} ➔ {arr}</b> ｜ 飛官：<b style="color: #f1f5f9;">{pilot}</b>
                         </div>
                     </div>
                 </div>
                 <div>
-                    <span style="background: rgba(16, 185, 129, 0.25); border: 1px solid #10b981; color: #6ee7b7; padding: 3px 10px; border-radius: 20px; font-size: 0.78em; font-weight: 600; text-transform: uppercase;">
+                    <span style="background: rgba(16, 185, 129, 0.25); border: 1px solid #10b981; color: #6ee7b7; padding: 4px 12px; border-radius: 20px; font-size: 0.85em; font-weight: 700; text-transform: uppercase;">
                         ● ACTIVE DISPATCH
                     </span>
                 </div>
@@ -628,7 +639,7 @@ def render_simbrief_ofp_card(simbrief_data: Dict[str, Any]):
     col_left, col_right = st.columns([1, 1], gap="medium")
 
     with col_left:
-        st.markdown("<div style='font-size: 0.9em; font-weight: 600; color: #38bdf8; margin-bottom: 6px;'>🗺️ Navigraph 航路圖 (Route Map)</div>", unsafe_allow_html=True)
+        st.markdown("<div style='font-size: 1.05em; font-weight: 600; color: #38bdf8; margin-bottom: 6px;'>🗺️ Navigraph 航路圖 (Route Map)</div>", unsafe_allow_html=True)
         if route_map:
             st.image(route_map, caption=f"SimBrief Route Map · {flt} ({dep} ➔ {arr})", use_container_width=True)
         else:
@@ -653,12 +664,12 @@ def render_simbrief_ofp_card(simbrief_data: Dict[str, Any]):
 
             st.markdown(
                 f"""
-                <div style="font-size: 0.88em; color: #e2e8f0; line-height: 1.8;">
-                    • <b>計畫總油量 (Block Fuel / Plan Ramp)</b>：<span style="color: #34d399; font-weight: 700; font-size: 1.05em;">{plan_ramp:,} kg</span><br/>
-                    • <b>航程耗油 (Enroute Burn / Trip)</b>：<code>{burn:,} kg</code><br/>
-                    • <b>法定儲備油 (Reserve · 30 min)</b>：<code>{res:,} kg</code><br/>
-                    • <b>備降場燃油 (Alternate Burn)</b>：<code>{alt_f:,} kg</code><br/>
-                    • <b>滑行燃油 (Taxi Fuel)</b>：<code>{taxi:,} kg</code>
+                <div style="font-size: 1.05em; color: #f1f5f9; line-height: 2.1;">
+                    • <b>計畫總油量 (Block Fuel / Plan Ramp)</b>：<span style="color: #34d399; font-weight: 700; font-size: 1.2em;">{plan_ramp:,} kg</span><br/>
+                    • <b>航程耗油 (Enroute Burn / Trip)</b>：<span style="color: #67e8f9; font-weight: 600; font-size: 1.1em;">{burn:,} kg</span><br/>
+                    • <b>法定儲備油 (Reserve · 30 min)</b>：<span style="color: #e2e8f0; font-weight: 600; font-size: 1.1em;">{res:,} kg</span><br/>
+                    • <b>備降場燃油 (Alternate Burn)</b>：<span style="color: #e2e8f0; font-weight: 600; font-size: 1.1em;">{alt_f:,} kg</span><br/>
+                    • <b>滑行燃油 (Taxi Fuel)</b>：<span style="color: #94a3b8; font-weight: 600; font-size: 1.05em;">{taxi:,} kg</span>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -669,11 +680,11 @@ def render_simbrief_ofp_card(simbrief_data: Dict[str, Any]):
             sched_i = simbrief_data.get("sched_in") or "N/A"
             st.markdown(
                 f"""
-                <div style="font-size: 0.88em; color: #e2e8f0; line-height: 1.8;">
-                    • <b>預估飛行時間 (Time Enroute)</b>：<span style="color: #38bdf8; font-weight: 700;">{time_enroute}</span><br/>
-                    • <b>預估區塊時間 (Block Time)</b>：<code>{block_time}</code><br/>
-                    • <b>預定離場時間 (Sched Out)</b>：<code>{sched_o}</code><br/>
-                    • <b>預定抵達時間 (Sched In)</b>：<code>{sched_i}</code>
+                <div style="font-size: 1.05em; color: #f1f5f9; line-height: 2.1;">
+                    • <b>預估飛行時間 (Time Enroute)</b>：<span style="color: #38bdf8; font-weight: 700; font-size: 1.2em;">{time_enroute}</span><br/>
+                    • <b>預估區塊時間 (Block Time)</b>：<span style="color: #67e8f9; font-weight: 600; font-size: 1.1em;">{block_time}</span><br/>
+                    • <b>預定離場時間 (Sched Out)</b>：<span style="color: #e2e8f0; font-weight: 600; font-size: 1.05em;">{sched_o}</span><br/>
+                    • <b>預定抵達時間 (Sched In)</b>：<span style="color: #e2e8f0; font-weight: 600; font-size: 1.05em;">{sched_i}</span>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -692,11 +703,11 @@ def render_simbrief_ofp_card(simbrief_data: Dict[str, Any]):
 
             st.markdown(
                 f"""
-                <div style="font-size: 0.88em; color: #e2e8f0; line-height: 1.8;">
-                    • <b>總商載 (Payload)</b>：<span style="color: #facc15; font-weight: 700;">{payload:,} kg</span>（旅客 {pax} 人 ｜ 貨物 {cargo:,} kg）<br/>
-                    • <b>預估零燃油重 (ZFW)</b>：<code>{zfw:,} kg</code> <span style="color: #94a3b8;">(上限: {max_zfw:,} kg)</span><br/>
-                    • <b>預估起飛總重 (TOW)</b>：<code>{tow:,} kg</code> <span style="color: #94a3b8;">(上限: {max_tow:,} kg)</span><br/>
-                    • <b>預估降落重量 (LDW)</b>：<code>{ldw:,} kg</code> <span style="color: #94a3b8;">(上限: {max_ldw:,} kg)</span>
+                <div style="font-size: 1.05em; color: #f1f5f9; line-height: 2.1;">
+                    • <b>總商載 (Payload)</b>：<span style="color: #facc15; font-weight: 700; font-size: 1.2em;">{payload:,} kg</span> <span style="font-size: 0.9em; color: #94a3b8;">(旅客 {pax} 人 ｜ 貨物 {cargo:,} kg)</span><br/>
+                    • <b>預估零燃油重 (ZFW)</b>：<span style="color: #e2e8f0; font-weight: 600; font-size: 1.1em;">{zfw:,} kg</span> <span style="font-size: 0.88em; color: #94a3b8;">(上限: {max_zfw:,} kg)</span><br/>
+                    • <b>預估起飛總重 (TOW)</b>：<span style="color: #e2e8f0; font-weight: 600; font-size: 1.1em;">{tow:,} kg</span> <span style="font-size: 0.88em; color: #94a3b8;">(上限: {max_tow:,} kg)</span><br/>
+                    • <b>預估降落重量 (LDW)</b>：<span style="color: #e2e8f0; font-weight: 600; font-size: 1.1em;">{ldw:,} kg</span> <span style="font-size: 0.88em; color: #94a3b8;">(上限: {max_ldw:,} kg)</span>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -711,12 +722,12 @@ def render_simbrief_ofp_card(simbrief_data: Dict[str, Any]):
 
             st.markdown(
                 f"""
-                <div style="font-size: 0.88em; color: #e2e8f0; line-height: 1.8;">
-                    • <b>起降跑道</b>：離場 <code>RWY {dep_rwy}</code> 🛫 ➔ 進場 <code>RWY {arr_rwy}</code> 🛬<br/>
-                    • <b>巡航高度</b>：<span style="color: #a78bfa; font-weight: 700;">{cruise_alt}</span> ｜ <b>成本指數</b>：<code>CI {ci}</code><br/>
-                    • <b>航路風向風速</b>：<code>{wind_dir}° / {wind_spd} kts</code> (順風分量: <code>+{wind_comp} kts</code>)<br/>
-                    • <b>航程距離</b>：大圓 <code>{gc_d} NM</code> ｜ 空中 <code>{air_d} NM</code><br/>
-                    • <b>法定備降場</b>：<code>{alt_icao}</code> <span style="color: #94a3b8;">({alt_name})</span>
+                <div style="font-size: 1.05em; color: #f1f5f9; line-height: 2.1;">
+                    • <b>起降跑道</b>：離場 <b style="color: #38bdf8; font-size: 1.1em;">RWY {dep_rwy}</b> 🛫 ➔ 進場 <b style="color: #34d399; font-size: 1.1em;">RWY {arr_rwy}</b> 🛬<br/>
+                    • <b>巡航高度</b>：<span style="color: #c084fc; font-weight: 700; font-size: 1.2em;">{cruise_alt}</span> ｜ <b>成本指數</b>：<span style="color: #e2e8f0; font-weight: 600; font-size: 1.1em;">CI {ci}</span><br/>
+                    • <b>航路風向風速</b>：<span style="color: #e2e8f0; font-weight: 600; font-size: 1.1em;">{wind_dir}° / {wind_spd} kts</span> <span style="color: #34d399;">(順風分量: +{wind_comp} kts)</span><br/>
+                    • <b>航程距離</b>：大圓 <b>{gc_d} NM</b> ｜ 空中 <b>{air_d} NM</b><br/>
+                    • <b>法定備降場</b>：<span style="color: #facc15; font-weight: 700; font-size: 1.1em;">{alt_icao}</span> <span style="font-size: 0.88em; color: #94a3b8;">({alt_name})</span>
                 </div>
                 """,
                 unsafe_allow_html=True
