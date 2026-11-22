@@ -290,20 +290,17 @@ OK
 本專案嚴格遵循課程評分標準：「除 LLM Server 外部獨立運行外，專案必須使用 Podman 容器技術，否則不予計分」。系統已配置完整的 `Containerfile`，並落實非 root (`Non-root user: aero`) 最小特權原則。
 
 ```bash
-# 1. 於 BRVA_Agent 目錄下建置標準 Podman 映像檔
+# 1. 複製環境設定 (預設即可直接執行離線模式，無須付費 Key)
+cp .env.example .env
+
+# 2. 於 BRVA_Agent 目錄下建置標準 Podman 映像檔
 podman build -t brva-agent:v1 -f Containerfile .
 
-# 2. 啟動互動式交談模式 (CLI 模式，助教評審推薦)
-podman run -it --rm --env-file .env brva-agent:v1
+# 3. 啟動 Streamlit 視覺化網頁儀表板
+podman run -d --rm -p 8501:8501 --env-file .env brva-agent:v1
 
-# 3. 於容器內部執行 8 大實戰情境全自動端到端展示腳本 (30 秒重現)
-podman run --rm --env-file .env brva-agent:v1 python scripts/demo_test_suite.py
-
-# 4. 於容器內部執行 46 項全自動單元測試套件
-podman run --rm --env-file .env brva-agent:v1 python -m unittest discover tests
-
-# 5. (選配) 啟動 Streamlit 網頁版視覺化儀表板 (本機開啟 http://localhost:8501)
-podman run -d --rm -p 8501:8501 --env-file .env brva-agent:v1 python -m streamlit run src/ui/web.py
+# 4. 於瀏覽器開啟 http://localhost:8501 即可開始操作！
+# (亦可使用 podman compose up --build 一鍵建置並啟動)
 ```
 
 ---
