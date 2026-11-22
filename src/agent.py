@@ -2,7 +2,7 @@ import os
 import re
 import json
 import random
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, Callable
 from src.config import config
 from src.context import UserContext
 from src.memory import AgentMemory, PendingDispatch
@@ -53,14 +53,24 @@ class BRVAAgent:
         self.current_trace: List[Dict[str, Any]] = []
         self._last_ofp_info: Optional[Dict[str, Any]] = None
         self._verbose: bool = True
+        self._on_step: Optional[Callable[[Dict[str, Any], List[Dict[str, Any]]], None]] = None
 
-    def _reset_trace(self, verbose: bool = True):
+    def _reset_trace(self, verbose: bool = True, on_step: Optional[Callable[[Dict[str, Any], List[Dict[str, Any]]], None]] = None):
         self._verbose = verbose
         self.current_trace = []
+        self._on_step = on_step
 
     def get_last_ofp_info(self) -> Optional[Dict[str, Any]]:
         """Returns the SimBrief OFP plan data from the last executed run, if one was generated."""
         return self._last_ofp_info
+
+    def _notify_step(self, step: Dict[str, Any]):
+        """Notifies live progressive listener (e.g. Streamlit Web UI) of a new step in real-time."""
+        if getattr(self, "_on_step", None):
+            try:
+                self._on_step(step, list(self.current_trace))
+            except Exception as e:
+                print(f"[Agent] Warning in on_step callback: {e}")
 
     def _add_trace_thought(self, title: str, content: str = ""):
         step = {
@@ -71,6 +81,7 @@ class BRVAAgent:
         self.current_trace.append(step)
         if self._verbose:
             print(f"\n[🤖 Agent 決策] {title}")
+        self._notify_step(step)
 
     def _add_trace_tool_call(self, tool_name: str, call_repr: str, args: Optional[Dict[str, Any]] = None):
         step = {
@@ -83,6 +94,7 @@ class BRVAAgent:
         self.current_trace.append(step)
         if self._verbose:
             print(f"[🔍 Tool Call] -> {call_repr}")
+        self._notify_step(step)
 
     def _add_trace_observation(self, summary: str, data: Optional[Any] = None, result: Optional[Any] = None):
         res_payload = result if result is not None else data
@@ -95,6 +107,7 @@ class BRVAAgent:
         self.current_trace.append(step)
         if self._verbose:
             print(f"[📥 Observation] -> {summary}\n")
+        self._notify_step(step)
 
     def get_last_trace(self) -> List[Dict[str, Any]]:
         """Returns the step trace of the last executed run."""
@@ -181,14 +194,16 @@ class BRVAAgent:
         user_input: str,
         user_context: Optional[UserContext] = None,
         verbose: bool = True,
-        return_trace: bool = False
+        return_trace: bool = False,
+        on_step: Optional[Callable[[Dict[str, Any], List[Dict[str, Any]]], None]] = None
     ) -> Union[str, tuple[str, List[Dict[str, Any]]]]:
         """
         Processes user query using ReAct loop and Human-in-the-Loop memory tracking.
         Supports pilot user_context for delegation and personal actions.
         Collects detailed step trace (thinking, tool calls, observations) for collapsible UI.
+        Emits live steps in real-time via optional on_step callback.
         """
-        self._reset_trace(verbose=verbose)
+        self._reset_trace(verbose=verbose, on_step=on_step)
         self._last_ofp_info = None
         user_text = user_input.strip()
         self.memory.add_message("user", user_text)

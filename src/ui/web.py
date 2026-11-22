@@ -1,4 +1,5 @@
 import os
+import time
 import html
 import json
 from typing import Optional, Dict, Any, List
@@ -474,8 +475,8 @@ def _format_result_payload(result_obj) -> str:
         return result_obj
     return str(result_obj)
 
-def render_trace_expander(trace: list, expanded: bool = True):
-    if not trace:
+def render_trace_expander(trace: list, expanded: bool = True, in_progress: bool = False):
+    if not trace and not in_progress:
         return
 
     num_tools = sum(1 for s in trace if s.get("type") == "tool_call")
@@ -488,22 +489,38 @@ def render_trace_expander(trace: list, expanded: bool = True):
         badge_items.append(f"{num_tools} 次工具調用")
     badge_str = " · ".join(badge_items) if badge_items else "執行歷程"
 
-    expander_title = f"💭 思考過程與工具調用 (Thinking & Tools · {badge_str})"
+    if in_progress:
+        expander_title = f"💭 思考過程與工具調用 (Thinking & Tools · {badge_str} · ⏳ 正在分析與推論中...)"
+    else:
+        expander_title = f"💭 思考過程與工具調用 (Thinking & Tools · {badge_str})"
 
     with st.expander(expander_title, expanded=True):
+        if in_progress and not trace:
+            st.markdown(
+                "<div style='padding: 8px 12px; font-size: 0.88em; color: #94a3b8; font-style: italic;'>"
+                "⚡ AI 簽派助理正在分析航電脈絡、評估限制條件並規劃執行路徑..."
+                "</div>",
+                unsafe_allow_html=True
+            )
+            return
+
         thought_idx = 1
         html_blocks = []
-        for step in trace:
+        total_steps = len(trace)
+        for step_idx, step in enumerate(trace):
             s_type = step.get("type", "thought")
             title = step.get("title", "")
             content = step.get("content", "")
             result = step.get("result")
 
+            is_active_step = in_progress and (step_idx == total_steps - 1)
+            open_attr = " open" if is_active_step else ""
+
             if s_type == "thought":
                 safe_title = html.escape(title)
                 safe_content = html.escape(content).replace("\n", "<br/>")
                 html_blocks.append(
-                    f"<details style='margin-bottom: 8px; border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 6px; background-color: rgba(30, 58, 138, 0.12); padding: 7px 11px;'>"
+                    f"<details{open_attr} style='margin-bottom: 8px; border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 6px; background-color: rgba(30, 58, 138, 0.12); padding: 7px 11px;'>"
                     f"<summary style='cursor: pointer; font-weight: 600; color: #60a5fa; font-size: 0.9em; user-select: none;'>💭 思考 #{thought_idx} · {safe_title}</summary>"
                     f"<div style='margin-top: 6px; padding: 6px 4px 2px 4px; border-top: 1px solid rgba(59, 130, 246, 0.2); font-size: 0.88em; color: #cbd5e1; line-height: 1.5;'>{safe_content}</div>"
                     f"</details>"
@@ -514,7 +531,7 @@ def render_trace_expander(trace: list, expanded: bool = True):
                 safe_tool = html.escape(tool_name)
                 safe_code = html.escape(content)
                 html_blocks.append(
-                    f"<details style='margin-bottom: 8px; border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; background-color: rgba(6, 78, 59, 0.12); padding: 7px 11px;'>"
+                    f"<details{open_attr} style='margin-bottom: 8px; border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; background-color: rgba(6, 78, 59, 0.12); padding: 7px 11px;'>"
                     f"<summary style='cursor: pointer; font-weight: 600; color: #34d399; font-size: 0.9em; user-select: none;'>🔧 調用工具 · <code>{safe_tool}</code></summary>"
                     f"<div style='margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(16, 185, 129, 0.2);'>"
                     f"<pre style='background: #0f172a; padding: 8px 10px; border-radius: 4px; overflow-x: auto; color: #a7f3d0; font-size: 0.84em; font-family: Consolas, Monaco, monospace; margin: 0; border: 1px solid rgba(16, 185, 129, 0.25);'><code>{safe_code}</code></pre>"
@@ -539,7 +556,7 @@ def render_trace_expander(trace: list, expanded: bool = True):
                         )
 
                 html_blocks.append(
-                    f"<details style='margin-bottom: 8px; border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 6px; background-color: rgba(88, 28, 135, 0.12); padding: 7px 11px;'>"
+                    f"<details{open_attr} style='margin-bottom: 8px; border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 6px; background-color: rgba(88, 28, 135, 0.12); padding: 7px 11px;'>"
                     f"<summary style='cursor: pointer; font-weight: 600; color: #c084fc; font-size: 0.9em; user-select: none;'>📥 執行觀察 (Observation) · {safe_snippet}</summary>"
                     f"<div style='margin-top: 6px; padding: 6px 4px 2px 4px; border-top: 1px solid rgba(168, 85, 247, 0.2); font-size: 0.88em; color: #e2e8f0; line-height: 1.5;'>"
                     f"<div style='margin-bottom: 4px;'>{safe_content}</div>"
@@ -547,6 +564,13 @@ def render_trace_expander(trace: list, expanded: bool = True):
                     f"</div>"
                     f"</details>"
                 )
+
+        if in_progress:
+            html_blocks.append(
+                "<div style='margin-top: 6px; padding: 4px 8px; font-size: 0.84em; color: #38bdf8; font-style: italic;'>"
+                "⏳ 正在推論與執行下一步驟..."
+                "</div>"
+            )
 
         if html_blocks:
             st.markdown("".join(html_blocks), unsafe_allow_html=True)
@@ -762,16 +786,30 @@ if user_prompt:
 
     # Agent response
     with st.chat_message("assistant"):
-        with st.spinner("🤖 BRVA Agent 正在規劃工具鏈與分析中..."):
-            response = st.session_state.agent.run(
-                user_prompt,
-                user_context=st.session_state.user_context,
-                verbose=False
-            )
-            trace = st.session_state.agent.get_last_trace()
-            ofp_data = st.session_state.agent.get_last_ofp_info()
+        trace_placeholder = st.empty()
 
-        render_trace_expander(trace, expanded=True)
+        # Render initial placeholder
+        with trace_placeholder.container():
+            render_trace_expander([], expanded=True, in_progress=True)
+
+        def on_trace_step(step, current_trace):
+            with trace_placeholder.container():
+                render_trace_expander(current_trace, expanded=True, in_progress=True)
+            time.sleep(0.35)
+
+        response = st.session_state.agent.run(
+            user_prompt,
+            user_context=st.session_state.user_context,
+            verbose=False,
+            on_step=on_trace_step
+        )
+        trace = st.session_state.agent.get_last_trace()
+        ofp_data = st.session_state.agent.get_last_ofp_info()
+
+        # Settled render (cleanly collapsed for pilot inspection)
+        with trace_placeholder.container():
+            render_trace_expander(trace, expanded=True, in_progress=False)
+
         if response.startswith("⚠️"):
             st.error(response)
         else:
