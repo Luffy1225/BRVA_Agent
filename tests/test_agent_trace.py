@@ -176,5 +176,32 @@ class TestAgentTrace(unittest.TestCase):
         self.assertIn('"flight": "BR184"', formatted)
         self.assertIn('"status": "SUCCESS"', formatted)
 
+    def test_progressive_trace_on_step_callback(self):
+        """Tests that on_step callback receives real-time step notifications as thoughts and tools execute."""
+        emitted_steps = []
+        snapshots = []
+
+        def recording_callback(step, current_trace):
+            emitted_steps.append(step.copy())
+            snapshots.append(list(current_trace))
+
+        resp = self.agent.run(
+            "幫我查一下 RCTP 05L 即時天氣與側風",
+            verbose=False,
+            on_step=recording_callback
+        )
+        self.assertIn("RCTP", resp)
+        self.assertTrue(len(emitted_steps) >= 3)  # thought -> tool_call -> observation
+        self.assertEqual(len(emitted_steps), len(snapshots))
+
+        # Check order of emitted steps
+        step_types = [s["type"] for s in emitted_steps]
+        self.assertEqual(step_types[0], "thought")
+        self.assertEqual(step_types[1], "tool_call")
+        self.assertEqual(step_types[2], "observation")
+
+        # Snapshot length should grow monotonically
+        self.assertEqual([len(s) for s in snapshots], list(range(1, len(snapshots) + 1)))
+
 if __name__ == "__main__":
     unittest.main()
