@@ -69,21 +69,23 @@ def prompt_configuration_wizard() -> AeroAgent:
             updates["GEMINI_API_KEY"] = gem_key_input
 
         print("\n🤖 請選擇 Gemini 模型選型：")
-        print("   1. gemini-2.5-flash (推薦：最新高速多模態推論)")
-        print("   2. gemini-1.5-flash (輕量高速、百萬 Token 長上下文)")
-        print("   3. gemini-2.0-flash (最新 2.0 架構)")
-        print("   4. gemini-1.5-pro (深度複雜長程推理)")
-        print("   5. 自訂模型名稱 (手動輸入)")
-        m_input = input(f"👉 請選擇模型 [1-5] (目前: {config.GEMINI_MODEL}): ").strip()
+        print("   1. gemini-3.5-flash-lite (推薦預設：最新輕量快速推論)")
+        print("   2. gemini-2.5-flash (推薦：最新高速多模態推論)")
+        print("   3. gemini-1.5-flash (輕量高速、百萬 Token 長上下文)")
+        print("   4. gemini-2.0-flash (最新 2.0 架構)")
+        print("   5. gemini-1.5-pro (深度複雜長程推理)")
+        print("   6. 自訂模型名稱 (手動輸入)")
+        m_input = input(f"👉 請選擇模型 [1-6] (目前: {config.GEMINI_MODEL}): ").strip()
         gemini_models_map = {
-            "1": "gemini-2.5-flash",
-            "2": "gemini-1.5-flash",
-            "3": "gemini-2.0-flash",
-            "4": "gemini-1.5-pro",
+            "1": "gemini-3.5-flash-lite",
+            "2": "gemini-2.5-flash",
+            "3": "gemini-1.5-flash",
+            "4": "gemini-2.0-flash",
+            "5": "gemini-1.5-pro",
         }
         if m_input in gemini_models_map:
             updates["GEMINI_MODEL"] = gemini_models_map[m_input]
-        elif m_input == "5":
+        elif m_input == "6":
             custom_model = input("   請輸入自訂 Gemini 模型名稱: ").strip()
             if custom_model:
                 updates["GEMINI_MODEL"] = custom_model

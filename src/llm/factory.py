@@ -24,7 +24,7 @@ def get_llm_provider(
     selected = (provider_type or getattr(config, "LLM_PROVIDER", "auto")).lower().strip()
 
     gem_key = gemini_api_key if gemini_api_key is not None else getattr(config, "GEMINI_API_KEY", "")
-    gem_model = gemini_model if gemini_model is not None else getattr(config, "GEMINI_MODEL", "gemini-2.5-flash")
+    gem_model = gemini_model if gemini_model is not None else getattr(config, "GEMINI_MODEL", "gemini-3.5-flash-lite")
     ol_url = ollama_base_url if ollama_base_url is not None else getattr(config, "OLLAMA_BASE_URL", "http://localhost:11434")
     ol_model = ollama_model if ollama_model is not None else getattr(config, "OLLAMA_MODEL", "llama3")
     ol_timeout = ollama_timeout if ollama_timeout is not None else getattr(config, "OLLAMA_TIMEOUT_SECONDS", 30.0)

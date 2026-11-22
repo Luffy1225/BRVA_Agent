@@ -24,6 +24,7 @@ except ImportError:
 
 SUPPORTED_PROVIDERS = ["gemini", "ollama", "offline", "auto"]
 SUPPORTED_GEMINI_MODELS = [
+    "gemini-3.5-flash-lite",
     "gemini-2.5-flash",
     "gemini-1.5-flash",
     "gemini-2.0-flash",
@@ -35,6 +36,14 @@ SUPPORTED_OLLAMA_MODELS = [
     "mistral",
     "deepseek-r1",
 ]
+
+
+def clean_api_url(url: Optional[str]) -> str:
+    """Normalizes the API base URL, trimming trailing slashes and redundant '/api' suffixes."""
+    s = (url or "").strip().rstrip("/")
+    if s.endswith("/api"):
+        s = s[:-4].rstrip("/")
+    return s or "https://api.eva-virtual.com"
 
 
 class Config:
@@ -51,10 +60,10 @@ class Config:
 
     # Gemini Settings (Google Cloud AI)
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
     # Backend Connection
-    BRVA_API_BASE_URL: str = os.getenv("BRVA_API_BASE_URL", "https://api.eva-virtual.com").rstrip("/")
+    BRVA_API_BASE_URL: str = clean_api_url(os.getenv("BRVA_API_BASE_URL", "https://api.eva-virtual.com"))
     BRVA_AGENT_API_KEY: str = os.getenv("BRVA_AGENT_API_KEY", "")
 
     # Execution & Safety
@@ -73,8 +82,8 @@ class Config:
         self.OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
         self.OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "30.0"))
         self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-        self.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-        self.BRVA_API_BASE_URL = os.getenv("BRVA_API_BASE_URL", "https://api.eva-virtual.com").rstrip("/")
+        self.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+        self.BRVA_API_BASE_URL = clean_api_url(os.getenv("BRVA_API_BASE_URL", "https://api.eva-virtual.com"))
         self.BRVA_AGENT_API_KEY = os.getenv("BRVA_AGENT_API_KEY", "")
         self.BACKEND_TIMEOUT_SECONDS = float(os.getenv("BACKEND_TIMEOUT_SECONDS", "5.0"))
         self.FALLBACK_TO_LOCAL = os.getenv("FALLBACK_TO_LOCAL", "true").lower() in ("true", "1", "yes")
@@ -102,6 +111,8 @@ def update_runtime_config(updates: Dict[str, Any], persist_to_env: bool = False)
     """
     for k, v in updates.items():
         val_str = str(v)
+        if k == "BRVA_API_BASE_URL":
+            val_str = clean_api_url(val_str)
         os.environ[k] = val_str
         if hasattr(config, k):
             if isinstance(getattr(config, k), float):

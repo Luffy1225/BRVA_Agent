@@ -89,7 +89,7 @@ with st.sidebar:
             if selected_g_model == "自訂模型 (Custom)...":
                 gemini_model_val = st.text_input(
                     "自訂 Gemini 模型名稱",
-                    value=config.GEMINI_MODEL if config.GEMINI_MODEL not in SUPPORTED_GEMINI_MODELS else "gemini-2.5-flash",
+                    value=config.GEMINI_MODEL if config.GEMINI_MODEL not in SUPPORTED_GEMINI_MODELS else "gemini-3.5-flash-lite",
                     key="cfg_gemini_custom_model_input"
                 )
             else:
@@ -129,6 +129,7 @@ with st.sidebar:
         brva_url_val = st.text_input(
             "🌐 BRVA API 伺服器網址",
             value=config.BRVA_API_BASE_URL,
+            help="線上正式站: https://api.eva-virtual.com | 本機開發: http://localhost:3000 (結尾有無 /api 皆自動相容)",
             key="cfg_brva_url_input"
         )
         brva_key_val = st.text_input(
@@ -141,51 +142,65 @@ with st.sidebar:
 
         save_to_env = st.checkbox("💾 同步儲存至 .env 檔案", value=True, key="cfg_save_env_checkbox")
 
-        col_apply, col_test = st.columns([1, 1])
+        col_apply, col_test = st.columns(2)
         with col_apply:
-            if st.button("🔄 套用設定並重啟", use_container_width=True, key="cfg_apply_btn"):
-                updates = {
-                    "LLM_PROVIDER": selected_provider,
-                    "GEMINI_API_KEY": gemini_key_val.strip(),
-                    "GEMINI_MODEL": gemini_model_val.strip(),
-                    "OLLAMA_BASE_URL": ollama_url_val.strip(),
-                    "OLLAMA_MODEL": ollama_model_val.strip(),
-                    "BRVA_API_BASE_URL": brva_url_val.strip(),
-                    "BRVA_AGENT_API_KEY": brva_key_val.strip(),
-                }
-                update_runtime_config(updates, persist_to_env=save_to_env)
-                
-                # Rebuild LLM provider and agent
-                new_prov = get_llm_provider(
+            apply_clicked = st.button("💾 套用重啟", type="primary", use_container_width=True, key="cfg_apply_btn")
+        with col_test:
+            test_clicked = st.button("🔍 連線檢驗", use_container_width=True, key="cfg_test_btn")
+
+        if apply_clicked:
+            updates = {
+                "LLM_PROVIDER": selected_provider,
+                "GEMINI_API_KEY": gemini_key_val.strip(),
+                "GEMINI_MODEL": gemini_model_val.strip(),
+                "OLLAMA_BASE_URL": ollama_url_val.strip(),
+                "OLLAMA_MODEL": ollama_model_val.strip(),
+                "BRVA_API_BASE_URL": brva_url_val.strip(),
+                "BRVA_AGENT_API_KEY": brva_key_val.strip(),
+            }
+            update_runtime_config(updates, persist_to_env=save_to_env)
+            
+            # Rebuild LLM provider and agent
+            new_prov = get_llm_provider(
+                provider_type=selected_provider,
+                gemini_api_key=gemini_key_val.strip(),
+                gemini_model=gemini_model_val.strip(),
+                ollama_base_url=ollama_url_val.strip(),
+                ollama_model=ollama_model_val.strip(),
+            )
+            st.session_state.agent = AeroAgent(llm_provider=new_prov)
+            backend_client.configure(
+                base_url=brva_url_val.strip(),
+                api_key=brva_key_val.strip()
+            )
+            st.success("✅ 設定已成功套用並重啟！")
+            st.rerun()
+
+        if test_clicked:
+            with st.spinner("連線健康檢測中..."):
+                temp_prov = get_llm_provider(
                     provider_type=selected_provider,
                     gemini_api_key=gemini_key_val.strip(),
                     gemini_model=gemini_model_val.strip(),
                     ollama_base_url=ollama_url_val.strip(),
                     ollama_model=ollama_model_val.strip(),
                 )
-                st.session_state.agent = AeroAgent(llm_provider=new_prov)
-                backend_client.configure(
-                    base_url=brva_url_val.strip(),
-                    api_key=brva_key_val.strip()
-                )
-                st.success("✅ 設定已套用！")
-                st.rerun()
+                p_ok, p_msg = temp_prov.test_connection()
+                
+                from src.client import BackendClient
+                temp_client = BackendClient(base_url=brva_url_val.strip(), api_key=brva_key_val.strip())
+                b_ok, b_msg = temp_client.test_connection()
 
-        with col_test:
-            if st.button("🔍 連線健康檢驗", use_container_width=True, key="cfg_test_btn"):
-                with st.spinner("檢驗中..."):
-                    prov = getattr(st.session_state.agent, "llm", None)
-                    if prov:
-                        p_ok, p_msg = prov.test_connection()
-                        if p_ok:
-                            st.success(f"🟢 LLM: {p_msg}")
-                        else:
-                            st.error(f"🔴 LLM: {p_msg}")
-                    b_ok, b_msg = backend_client.test_connection()
-                    if b_ok:
-                        st.success(f"🟢 後端: {b_msg}")
-                    else:
-                        st.warning(f"🟡 後端: {b_msg}")
+            st.markdown("##### 🩺 連線檢驗報告")
+            if p_ok:
+                st.success(f"🟢 **AI 模型 ({temp_prov.provider_name.upper()})**\n\n{p_msg}")
+            else:
+                st.error(f"🔴 **AI 模型 ({temp_prov.provider_name.upper()})**\n\n{p_msg}")
+
+            if b_ok:
+                st.success(f"🟢 **BRVA 後端**\n\n{b_msg}")
+            else:
+                st.warning(f"🟡 **BRVA 後端**\n\n{b_msg}")
 
     st.divider()
 

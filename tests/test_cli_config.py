@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 from src.config import (
     config,
+    clean_api_url,
     mask_secret,
     save_config_to_env,
     update_runtime_config,
@@ -24,15 +25,22 @@ class TestCliConfigAndWizard(unittest.TestCase):
         self.assertEqual(mask_secret("1234567890"), "1234...7890")
         self.assertEqual(mask_secret("custom_test_secret_key_1234567890"), "cust...7890")
 
+    def test_clean_api_url(self):
+        self.assertEqual(clean_api_url("https://api.eva-virtual.com/"), "https://api.eva-virtual.com")
+        self.assertEqual(clean_api_url("https://api.eva-virtual.com/api"), "https://api.eva-virtual.com")
+        self.assertEqual(clean_api_url("https://api.eva-virtual.com/api/"), "https://api.eva-virtual.com")
+        self.assertEqual(clean_api_url("http://localhost:3000/api"), "http://localhost:3000")
+        self.assertEqual(clean_api_url(""), "https://api.eva-virtual.com")
+
     def test_update_runtime_config(self):
         update_runtime_config({
             "LLM_PROVIDER": "offline",
-            "GEMINI_MODEL": "gemini-2.5-flash",
-            "BRVA_API_BASE_URL": "https://api.eva-virtual.com"
+            "GEMINI_MODEL": "gemini-3.5-flash-lite",
+            "BRVA_API_BASE_URL": "https://api.eva-virtual.com/api"
         }, persist_to_env=False)
 
         self.assertEqual(config.LLM_PROVIDER, "offline")
-        self.assertEqual(config.GEMINI_MODEL, "gemini-2.5-flash")
+        self.assertEqual(config.GEMINI_MODEL, "gemini-3.5-flash-lite")
         self.assertEqual(config.BRVA_API_BASE_URL, "https://api.eva-virtual.com")
 
     def test_provider_test_connection(self):
@@ -51,14 +59,14 @@ class TestCliConfigAndWizard(unittest.TestCase):
         # Simulated user inputs:
         # 1: Choose Gemini [1]
         # 2: Gemini API Key ["AIzaSyTestKey1234567890"]
-        # 3: Choose Gemini Model [1] -> gemini-2.5-flash
+        # 3: Choose Gemini Model [1] -> gemini-3.5-flash-lite
         # 4: BRVA Base URL ["https://api.eva-virtual.com"]
         # 5: BRVA Agent Key ["brva_sk_live_testkey"]
         # 6: Save to .env [n] (do not overwrite during test)
         mock_input.side_effect = [
             "1",                                  # Provider: Gemini
             "mock_gemini_api_key_sample_12345",   # Gemini API Key
-            "1",                                  # Model: gemini-2.5-flash
+            "1",                                  # Model: gemini-3.5-flash-lite
             "https://api.eva-virtual.com", # Base URL
             "brva_sk_live_testkey",        # Agent Key
             "n"                            # Save to .env: No
@@ -68,7 +76,7 @@ class TestCliConfigAndWizard(unittest.TestCase):
         self.assertIsNotNone(agent)
         self.assertEqual(config.LLM_PROVIDER, "gemini")
         self.assertEqual(config.GEMINI_API_KEY, "mock_gemini_api_key_sample_12345")
-        self.assertEqual(config.GEMINI_MODEL, "gemini-2.5-flash")
+        self.assertEqual(config.GEMINI_MODEL, "gemini-3.5-flash-lite")
         self.assertEqual(config.BRVA_API_BASE_URL, "https://api.eva-virtual.com")
         self.assertEqual(config.BRVA_AGENT_API_KEY, "brva_sk_live_testkey")
 

@@ -1,6 +1,6 @@
 import requests
 from typing import Optional, Dict, Any
-from src.config import config
+from src.config import config, clean_api_url
 
 class BackendClient:
     """
@@ -8,7 +8,7 @@ class BackendClient:
     Handles x-agent-key authentication, user delegation tokens, timeouts, and graceful error handling.
     """
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
-        self.base_url = (base_url or config.BRVA_API_BASE_URL).rstrip("/")
+        self.base_url = clean_api_url(base_url or config.BRVA_API_BASE_URL)
         self.api_key = api_key if api_key is not None else config.BRVA_AGENT_API_KEY
         self.timeout = config.BACKEND_TIMEOUT_SECONDS
 
@@ -68,7 +68,7 @@ class BackendClient:
     def configure(self, base_url: Optional[str] = None, api_key: Optional[str] = None, timeout: Optional[float] = None):
         """Dynamically reconfigures the client's connection parameters."""
         if base_url is not None:
-            self.base_url = base_url.rstrip("/")
+            self.base_url = clean_api_url(base_url)
         if api_key is not None:
             self.api_key = api_key
         if timeout is not None:

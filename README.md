@@ -83,7 +83,7 @@ python -m unittest discover tests
 4. **民航規章與飛行手冊 RAG 知識庫 (Aviation RAG Engine)**：
    - 完整索引長榮虛擬航空三大核心法規（10 大階段 SOP、Live 機隊規章、實機術科考核手冊），採用輕量 In-Memory BM25 檢索並合成權威出處引文（【來源：...】），徹底杜絕規則幻覺。
 5. **多供應商 LLM 抽象層與啟動即席選型精靈 (Unified LLM & Startup Configuration Wizard)**：
-   - 抽象化底層模型供應商，原生支援雲端 **Google Gemini**（gemini-2.5-flash / gemini-1.5-flash / gemini-2.0-flash / gemini-1.5-pro）、區域網路內/本機 **Ollama**（Llama 3、Qwen 2.5、DeepSeek 等）與 **離線確定性規則引擎 (Offline)**。
+   - 抽象化底層模型供應商，原生支援雲端 **Google Gemini**（gemini-3.5-flash-lite / gemini-2.5-flash / gemini-1.5-flash / gemini-2.0-flash / gemini-1.5-pro）、區域網路內/本機 **Ollama**（Llama 3、Qwen 2.5、DeepSeek 等）與 **離線確定性規則引擎 (Offline)**。
    - **啟動即席參數設定與模型選型 (Startup Interactive Wizard)**：
      - **CLI 模式**：執行一進去立即引導進行模型選型（[1] Gemini、[2] Ollama、[3] Offline、[4] Auto），動態輸入 Gemini API Key、模型版本、BRVA API Key (`x-agent-key`) 與後端網址，支援自動健康檢查，交談中隨時輸入 `/config` 或 `/model` 切換，輸入 `/status` 檢視連線狀態。
      - **Web 模式 (Streamlit)**：側邊欄頂部具備專屬「⚙️ 參數設定與模型選型」面板，支援即時切換模型、輸入 API Key、連線健康度檢測，並支援一鍵同步寫入 `.env`。
