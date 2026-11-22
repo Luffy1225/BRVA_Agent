@@ -9,7 +9,7 @@ class BackendClient:
     """
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
         self.base_url = (base_url or config.BRVA_API_BASE_URL).rstrip("/")
-        self.api_key = api_key or config.BRVA_AGENT_API_KEY
+        self.api_key = api_key if api_key is not None else config.BRVA_AGENT_API_KEY
         self.timeout = config.BACKEND_TIMEOUT_SECONDS
 
     def _headers(self) -> Dict[str, str]:

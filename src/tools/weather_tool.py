@@ -43,7 +43,7 @@ def fetch_aviation_weather(icao: str, runway: Optional[str] = "16R") -> Dict[str
         }
 
     # 1. Try fetching from Backend Production / Staging API
-    backend_res = backend_client.get("/api/weather/metar", params={"icao": clean_icao})
+    backend_res = backend_client.get("/api/weather/metar", params={"airport": clean_icao, "icao": clean_icao})
     raw_metar = ""
     if backend_res and backend_res.get("success"):
         metar_data = backend_res.get("metar")

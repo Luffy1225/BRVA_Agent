@@ -33,15 +33,25 @@ def query_virtual_routes(dep_icao: str, arr_icao: str, aircraft_type: Optional[s
         "aircraft": clean_type or "",
     })
 
-    if backend_res and isinstance(backend_res.get("routes"), list) and len(backend_res["routes"]) > 0:
+    raw_routes = []
+    if backend_res:
+        if isinstance(backend_res.get("data"), list):
+            raw_routes = backend_res["data"]
+        elif isinstance(backend_res.get("routes"), list):
+            raw_routes = backend_res["routes"]
+
+    if len(raw_routes) > 0:
         results = []
-        for r in backend_res["routes"]:
+        for r in raw_routes:
+            ac_val = r.get("aircraft") or r.get("aircraftType") or clean_type or "B78X"
+            if isinstance(ac_val, list):
+                ac_val = ", ".join(ac_val) if ac_val else "B78X"
             r_type = r.get("routeType", "passenger")
             results.append({
                 "flight_number": r.get("routeNumber") or r.get("flightNumber"),
-                "dep": r.get("deptAirport") or clean_dep,
-                "arr": r.get("arrAirport") or clean_arr,
-                "aircraft": r.get("aircraft") or clean_type or "B78X",
+                "dep": r.get("departureICAO") or r.get("deptAirport") or clean_dep,
+                "arr": r.get("arrivalICAO") or r.get("arrAirport") or clean_arr,
+                "aircraft": ac_val,
                 "flight_time": r.get("flightTime") or "2h 40m",
                 "is_cargo": "cargo" in str(r_type).lower(),
                 "route_type": r_type,

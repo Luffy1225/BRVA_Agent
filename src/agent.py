@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from typing import Dict, Any, List, Optional
 from src.config import config
@@ -44,8 +45,14 @@ class AeroAgent:
         # 1. Human-in-the-Loop (HITL) Pending Dispatch Check
         # -------------------------------------------------------------
         pending = self.memory.get_pending()
-        affirmative_words = ["好", "是", "可以", "簽派", "直接簽派", "確認", "ok", "yes", "sure", "y"]
-        if pending and any(word in user_text.lower() for word in affirmative_words):
+        is_question = any(q in user_text for q in ["？", "?", "請問", "多少", "什麼", "怎", "幾", "如何", "哪"])
+        is_explicit_dispatch = any(w in user_text for w in ["直接簽派", "幫我簽派", "確認簽派", "進行簽派", "同意簽派", "授權簽派", "確認", "發放放行單"])
+        is_short_affirmative = (len(user_text) <= 15) and any(
+            user_text.lower().strip().startswith(w) or user_text.lower().strip().endswith(w) or user_text.lower().strip() == w
+            for w in ["好", "好的", "好的！", "是", "是的", "沒問題", "行", "可以", "ok", "yes", "sure", "y"]
+        )
+
+        if pending and not is_question and (is_explicit_dispatch or is_short_affirmative):
             if verbose:
                 print("\n[🤖 Agent 決策] 偵測到機師確認簽派授權！自 Memory 提取待簽派班次參數...")
                 print(f"[🔍 Tool Call] -> generate_simbrief_dispatch(flight_number='{pending.flight_number}', dep_icao='{pending.dep_icao}', arr_icao='{pending.arr_icao}', aircraft_type='{pending.aircraft_type}')")
@@ -149,43 +156,83 @@ class AeroAgent:
         # -------------------------------------------------------------
         flight_keywords = [
             "飛往", "開 ", "班次", "航班", "簽派", "航線", "航路", "天氣", "跑道", "風向", "metar", "風速",
-            "rctp", "rjaa", "rjbb", "vhhh", "桃園", "成田", "關西", "香港", "b78x", "b77w", "a321"
+            "rctp", "rjaa", "rjbb", "vhhh", "rcss", "rckh", "桃園", "成田", "關西", "香港", "松山", "高雄",
+            "b78x", "b77w", "a321", "a339", "b789"
         ]
         has_flight_intent = any(k in user_text.lower() for k in flight_keywords)
 
         if has_flight_intent:
-            # Extract airports
+            # 1. Dynamic Airport Extraction (ICAO or City Name)
+            airport_map = {
+                "桃園": "RCTP", "RCTP": "RCTP",
+                "成田": "RJAA", "RJAA": "RJAA",
+                "關西": "RJBB", "RJBB": "RJBB",
+                "香港": "VHHH", "VHHH": "VHHH",
+                "松山": "RCSS", "RCSS": "RCSS",
+                "高雄": "RCKH", "RCKH": "RCKH",
+                "羽田": "RJTT", "RJTT": "RJTT",
+                "新加坡": "WSSS", "WSSS": "WSSS",
+            }
+
             dep = "RCTP"
             arr = "RJAA"
+
+            # Check 4-letter ICAO patterns
+            found_icaos = [m.group(0).upper() for m in re.finditer(r'\b[A-Za-z]{4}\b', user_text)]
+            valid_icaos = [code for code in found_icaos if code in airport_map or code.startswith("R") or code.startswith("V") or code.startswith("W")]
+
+            if len(valid_icaos) >= 2:
+                dep = valid_icaos[0]
+                arr = valid_icaos[1]
+            elif len(valid_icaos) == 1:
+                # If only one ICAO found, decide if it's dep or arr
+                if any(w in user_text for w in ["飛往", "到", "降落", "目的地"]):
+                    arr = valid_icaos[0]
+                else:
+                    dep = valid_icaos[0]
+            else:
+                # Check city names
+                for name, code in airport_map.items():
+                    if f"從{name}" in user_text or f"由{name}" in user_text or f"在{name}" in user_text:
+                        dep = code
+                    elif f"往{name}" in user_text or f"到{name}" in user_text or f"至{name}" in user_text:
+                        arr = code
+
+            # 2. Dynamic Aircraft Extraction
             aircraft = "B78X"
+            ac_matches = re.findall(r'\b(B78X|B77W|A321|A339|B789|B777|A350|787|777|321)\b', user_text, re.IGNORECASE)
+            if ac_matches:
+                raw_ac = ac_matches[0].upper()
+                if "777" in raw_ac or "77W" in raw_ac:
+                    aircraft = "B77W"
+                elif "321" in raw_ac:
+                    aircraft = "A321"
+                elif "787" in raw_ac or "78X" in raw_ac or "789" in raw_ac:
+                    aircraft = "B78X"
+                else:
+                    aircraft = raw_ac
 
-            if "成田" in user_text or "RJAA" in user_text.upper():
-                arr = "RJAA"
-            elif "關西" in user_text or "RJBB" in user_text.upper():
-                arr = "RJBB"
-            elif "香港" in user_text or "VHHH" in user_text.upper():
-                arr = "VHHH"
-
-            if "777" in user_text or "B77W" in user_text.upper():
-                aircraft = "B77W"
-            elif "321" in user_text or "A321" in user_text.upper():
-                aircraft = "A321"
+            # 3. Dynamic Runway Extraction
+            target_rwy = "16R" if arr == "RJAA" else ("05L" if arr == "RCTP" else "10")
+            rwy_match = re.search(r'(\d{2}[LRC]?)\s*跑道|跑道\s*(\d{2}[LRC]?)', user_text, re.IGNORECASE)
+            if rwy_match:
+                target_rwy = (rwy_match.group(1) or rwy_match.group(2)).upper()
 
             if verbose:
                 print(f"\n[🤖 Agent 決策] 使用者欲由 {dep} 執飛 {aircraft} 至 {arr}。執行兩步驟工具鏈：航線檢索 ➡️ 目的地起降氣象解析...")
                 print(f"[🔍 Tool Call 1] -> query_virtual_routes(dep_icao='{dep}', arr_icao='{arr}', aircraft_type='{aircraft}')")
 
             routes = query_virtual_routes(dep, arr, aircraft)
-            flight = routes[0] if routes else {"flight_number": "BR184", "aircraft": aircraft, "flight_time": "2h 40m"}
+            flight = routes[0] if routes else {"flight_number": f"BR{dep[2:]}{arr[2:]}", "aircraft": aircraft, "flight_time": "2h 40m"}
 
             if verbose:
                 print(f"[📥 Observation 1] -> 匹配推薦班次：{flight['flight_number']}（{flight['aircraft']}，航程預估 {flight['flight_time']}）")
-                print(f"[🔍 Tool Call 2] -> fetch_aviation_weather(icao='{arr}', runway='16R')")
+                print(f"[🔍 Tool Call 2] -> fetch_aviation_weather(icao='{arr}', runway='{target_rwy}')")
 
-            weather = fetch_aviation_weather(arr, "16R")
+            weather = fetch_aviation_weather(arr, target_rwy)
 
             if verbose:
-                print(f"[📥 Observation 2] -> {arr} 即時 METAR 取得成功，16R 跑道側風分量 {weather['crosswind_kts']} 節\n")
+                print(f"[📥 Observation 2] -> {arr} 即時 METAR 取得成功，{target_rwy} 跑道側風分量 {weather['crosswind_kts']} 節\n")
 
             # Save pending dispatch into Agent Memory
             self.memory.set_pending(PendingDispatch(
@@ -193,7 +240,7 @@ class AeroAgent:
                 dep_icao=dep,
                 arr_icao=arr,
                 aircraft_type=aircraft,
-                recommended_runway="16R",
+                recommended_runway=target_rwy,
                 estimated_time=flight['flight_time'],
                 crosswind_kts=weather['crosswind_kts']
             ))
@@ -203,7 +250,7 @@ class AeroAgent:
                 f"1. 【推薦航班】：{flight['flight_number']}（{dep} 🛫 ➡️ {arr} 🛬，預估航程 {flight['flight_time']}，由 {aircraft} 客機執飛）。\n\n"
                 f"2. 【目的地天氣簡報 ({arr})】：\n"
                 f"   • METAR 報文：`{weather['raw_metar']}`\n"
-                f"   • 跑道建議：建議使用 16R 跑道進場。\n"
+                f"   • 跑道建議：建議使用 {target_rwy} 跑道進場。\n"
                 f"   • 風向與側風評估：{weather['risk_assessment']}\n\n"
                 f"3. 【防禦性操作提醒】：側風雖然合規，但若存在陣風，進場平飄時請適時下風向盤舵修正偏流，保持機頭對正跑道中心線。\n\n"
                 f"👉 如果沒有其他要修改的是否直接為您簽派 {flight['flight_number']}？"
