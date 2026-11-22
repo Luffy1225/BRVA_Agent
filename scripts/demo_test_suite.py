@@ -135,7 +135,54 @@ def run_e2e_tests():
     assert "Wait Landing" in resp_6_3, "應包含 Wait Landing 斷線落地保護機制！"
     print("\n✅ [PASS] 6.3 LIVE 機隊認領上限 (3 架) 與墜機 3 小時通報時限精確檢索！")
 
-    separator("🎉 全部 6 大測試情境 100% 通過！ReAct + 4大工具 + 官方規章 RAG 運作完全正常！")
+    # -------------------------------------------------------------
+    # 測試情境七：飛官授權委託身分與個人資料/點數查詢 (Tool 6)
+    # -------------------------------------------------------------
+    separator("測試 7：飛官個人檔案與點數查詢 (query_pilot_profile)")
+    from src.context import UserContext
+    auth_pilot = UserContext(
+        is_authenticated=True,
+        user_id="user_eva_888",
+        callsign="EVA001",
+        username="Captain Chen",
+        rank_name="Senior Captain",
+        points=2500.0,
+        flight_time_hours=480.5,
+        delegation_token="mock_delegation_token"
+    )
+
+    print("7.1 測試未認證訪客狀態查詢個人點數 (安全阻擋與登入引導):")
+    prompt_7_1 = "幫我查我的點數與個人檔案"
+    print(f"🧑 訪客提問: {prompt_7_1}\n")
+    resp_7_1 = agent.run(prompt_7_1, user_context=UserContext(is_authenticated=False), verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_7_1}")
+    assert "尚未在側邊欄登入" in resp_7_1 or "登入 CrewCenter" in resp_7_1, "未認證應提示登入"
+    print("\n✅ [PASS] 7.1 未認證查詢個人檔案精確觸發安全阻擋與登入指引！")
+
+    print("\n7.2 測試已授權飛官查詢個人檔案與時數:")
+    prompt_7_2 = "幫我查我的個人檔案與帳號資訊"
+    print(f"🧑 飛官提問: {prompt_7_2}\n")
+    resp_7_2 = agent.run(prompt_7_2, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_7_2}")
+    assert "EVA001" in resp_7_2, "應包含呼號 EVA001"
+    assert "Senior Captain" in resp_7_2, "應包含階級 Senior Captain"
+    assert "2,500" in resp_7_2, "應包含點數 2500"
+    print("\n✅ [PASS] 7.2 已授權飛官個人檔案、時數與點數查詢成功！")
+
+    # -------------------------------------------------------------
+    # 測試情境八：CrewCenter 飛官商城目錄查詢與嚴格唯讀防護 (Tool 7)
+    # -------------------------------------------------------------
+    separator("測試 8：CrewCenter 飛官商城目錄查詢與唯讀安全防護 (query_store_catalog)")
+    prompt_8 = "幫我看一下商城目前有什麼商品"
+    print(f"🧑 飛官提問: {prompt_8}\n")
+    resp_8 = agent.run(prompt_8, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_8}")
+    assert "CrewCenter 飛官商城" in resp_8, "應包含商城商品清單"
+    assert "長程航線特許卡" in resp_8, "應包含典型商品"
+    assert "僅供查閱" in resp_8 or "手動點選購買" in resp_8, "應嚴格標註唯讀禁止購買免責聲明"
+    print("\n✅ [PASS] 8. 飛官商城目錄查詢正常，且嚴格落實唯讀防護！")
+
+    separator("🎉 全部 8 大測試情境 100% 通過！ReAct + 7大工具 + 官方規章 RAG + 飛官身分委託完全正常！")
 
 if __name__ == "__main__":
     run_e2e_tests()

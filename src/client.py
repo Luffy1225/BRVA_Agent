@@ -5,41 +5,50 @@ from src.config import config
 class BackendClient:
     """
     HTTP Client communicating with the BRVA Production / Staging Backend API.
-    Handles x-agent-key authentication, timeouts, and graceful error handling.
+    Handles x-agent-key authentication, user delegation tokens, timeouts, and graceful error handling.
     """
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
         self.base_url = (base_url or config.BRVA_API_BASE_URL).rstrip("/")
         self.api_key = api_key if api_key is not None else config.BRVA_AGENT_API_KEY
         self.timeout = config.BACKEND_TIMEOUT_SECONDS
 
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self, user_token: Optional[str] = None) -> Dict[str, str]:
         headers = {
             "User-Agent": "BRVA-Agent/1.0",
             "Accept": "application/json",
         }
         if self.api_key:
             headers["x-agent-key"] = self.api_key
+        if user_token:
+            headers["Authorization"] = f"Bearer {user_token}"
         return headers
 
-    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    def get(self, endpoint: str, params: Optional[Dict[str, Any]] = None, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         try:
-            resp = requests.get(url, headers=self._headers(), params=params, timeout=self.timeout)
+            resp = requests.get(url, headers=self._headers(user_token=user_token), params=params, timeout=self.timeout)
             if resp.status_code == 200:
                 return resp.json()
             elif resp.status_code == 503:
                 print(f"[BackendClient] ⚠️ Server returned 503 (Agent disabled by administrator).")
             else:
+                try:
+                    data = resp.json()
+                    if isinstance(data, dict):
+                        data["_status_code"] = resp.status_code
+                        return data
+                except Exception:
+                    pass
                 print(f"[BackendClient] Warning: {url} returned HTTP {resp.status_code}: {resp.text[:100]}")
             return None
         except requests.exceptions.RequestException as e:
             print(f"[BackendClient] ⚠️ Network error reaching {url}: {e}")
             return None
 
-    def post(self, endpoint: str, json_data: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    def post(self, endpoint: str, json_data: Optional[Dict[str, Any]] = None, user_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         try:
-            resp = requests.post(url, headers=self._headers(), json=json_data, timeout=self.timeout)
+            resp = requests.post(url, headers=self._headers(user_token=user_token), json=json_data, timeout=self.timeout)
             if resp.status_code in (200, 201):
                 return resp.json()
             else:
@@ -55,5 +64,15 @@ class BackendClient:
         except requests.exceptions.RequestException as e:
             print(f"[BackendClient] ⚠️ Network error posting to {url}: {e}")
             return None
+
+    def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """
+        Validates a delegation token or user access token against the backend.
+        Returns pilot profile if valid, None otherwise.
+        """
+        clean_token = (token or "").strip()
+        if not clean_token:
+            return None
+        return self.get("/api/agent/token", user_token=clean_token)
 
 backend_client = BackendClient()

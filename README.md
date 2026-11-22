@@ -12,17 +12,19 @@
 助教或評審可依環境偏好，任選以下 **三種最簡便方式** 立即啟動與驗證系統：
 
 ### 方式 A：一鍵執行全自動端到端測試展示 (E2E Demo Suite，最推薦 ⭐️)
-無須配置外部 API Key，本專案內建確定性離線規則與快取，一鍵全自動展示 6 大航空實戰流程：
+無須配置外部 API Key，本專案內建確定性離線規則與快取，一鍵全自動展示 8 大航空實戰流程：
 ```bash
 python scripts/demo_test_suite.py
 ```
 > **展示重點**：
 > 1. 第一輪簽派推薦 + 目的地 METAR 氣象解析 + 跑道側風分量計算
-> 2. 人機協同 (HITL) 授權確認 ➔ 自動向 SimBrief 產出正式 OFP 飛行放行單
+> 2. 人機協同 (HITL) 授權確認 ➔ 自動向 SimBrief 與 BRVA 簽派中心產出正式 OFP 放行單
 > 3. 黑盒子遙測合格案例審查 (PASS 100分)
 > 4. 黑盒子遙測違規案例審查 (FAIL 滑行超速 + 硬著陸一票否決，零算術幻覺)
 > 5. 異常邊界容錯 (無效 ICAO 代碼與不存在檔案)
 > 6. 官方 SOP、術科考核與 Live 機隊規章 RAG 檢索與權威引文合成
+> 7. 飛官身分委任授權與個人時數/點數/階級查詢 (query_pilot_profile)
+> 8. CrewCenter 飛官商城架上目錄查詢與嚴格唯讀防護 (query_store_catalog)
 
 ---
 
@@ -88,7 +90,7 @@ python -m unittest discover tests
 
 ## 二、 Tool 工具定義 (Tool Definitions)
 
-本系統依作業二與民航飛行安全規範實作 5 大專業工具，全數定義具體的 Pydantic 輸入/輸出規範與例外處理：
+本系統依作業二與民航飛行安全規範實作 7 大專業工具，全數定義具體的 Pydantic 輸入/輸出規範與例外處理：
 
 ### Tool 1：`fetch_aviation_weather`
 - **目的 (Purpose)**：抓取 ICAO 機場之最新 METAR 天氣報文，並以三角函數精確計算指定跑道的正逆風與側風分量，評估起降風險。
@@ -110,10 +112,10 @@ python -m unittest discover tests
 - **Error Handling**：若無精確匹配機型，自動放寬篩選條件或回退讀取本地備用航網庫。
 
 ### Tool 3：`generate_simbrief_dispatch`
-- **目的 (Purpose)**：呼叫 SimBrief 簽派服務，為機師生成正式的飛行計畫（OFP 放行單）。
-- **輸入 (Input)**：`flight_number`、`dep_icao`、`arr_icao`、`aircraft_type`。
-- **輸出 (Output)**：航路、巡航高度（如 FL370）、計畫燃油 (Block Fuel)、法定備降場與 SimBrief 官方 URL。
-- **Error Handling**：若 SimBrief 服務連線失敗，自動回傳標準備用航路與預估巡航參數。
+- **目的 (Purpose)**：呼叫 SimBrief 與 BRVA 簽派中心服務，為機師生成正式的飛行計畫（OFP 放行單）並建立 Active Dispatch。
+- **輸入 (Input)**：`flight_number`、`dep_icao`、`arr_icao`、`aircraft_type`、`user_context` (可選飛官身份委派)。
+- **輸出 (Output)**：航路、巡航高度（如 FL370）、計畫燃油 (Block Fuel)、法定備降場與放行單摘要。
+- **Error Handling**：若外部服務連線異常，自動回退使用確定性離線航路簽派庫；若飛官尚未綁定 SimBrief，通知內部已完成 Dispatch 放行並提示機師領取。
 
 ### Tool 4：`analyze_flight_telemetry`
 - **目的 (Purpose)**：以 Pandas 演算法逐秒檢測飛行黑盒子時序紀錄，杜絕純 LLM 的數值算術幻覺。
@@ -131,6 +133,26 @@ python -m unittest discover tests
   - `query: str`、`results_count: int`、`top_chunks: List[Dict]`（含章節標題、關聯性分數、文檔來源標籤）、`direct_answer: str`（經權威引文標記合成的綜合答覆）。
 - **Error Handling**：
   - 若提問為空或查無符合之航法規章，回傳結構化引導提示，避免拋出未捕獲例外；若文檔目錄不存在，安全回退並記錄 Warning。
+
+### Tool 6：`query_pilot_profile` (Pilot Profile & Points Engine)
+- **目的 (Purpose)**：經由機師授權之短效 Scoped Delegation Token，向 CrewCenter 查詢飛官個人呼號、時數、階級與點數餘額。
+- **輸入 (Input)**：
+  - `query_type: Optional[str]`（查詢維度：`hours` 時數、`points` 點數、`rank` 階級、`summary` 全覽）
+  - `user_context: Optional[UserContext]`（當前會話授權上下文）
+- **輸出 (Output)**：
+  - `status: str`、`callsign: str`、`rank_name: str`、`points: float`、`flight_time_hours: float`、`summary: str`
+- **Error Handling**：
+  - 若未傳入有效飛官授權上下文，安全阻斷並回傳引導提示，避免私有飛行數據外洩。
+
+### Tool 7：`query_store_catalog` (Store Catalog & Strict Read-Only Guard)
+- **目的 (Purpose)**：查詢 CrewCenter 飛官商城架上商品目錄與兌換點數，**嚴格唯讀（Strictly Read-Only）**，禁止 AI 代表扣款購買。
+- **輸入 (Input)**：
+  - `category: Optional[str]`（可選分類篩選）
+  - `user_context: Optional[UserContext]`（可選當前飛官點數對照）
+- **輸出 (Output)**：
+  - `status: str`、`items_count: int`、`user_points: Optional[float]`、`can_purchase: bool (固定 False)`、`summary: str`
+- **Error Handling**：
+  - 嚴格鎖定 `can_purchase = False`，於回應末尾固定輸出安全聲明，要求使用者親至網頁端確認交易，防止對話注入或非預期資產損失。
 
 ---
 
@@ -210,13 +232,20 @@ python -m unittest discover tests
 ### 失敗情境三：飛行員未綁定 SimBrief 帳號之簽派中斷 (SimBrief Account Not Linked)
 - **失敗狀況**：飛行員尚未於 BRVA 個人中心綁定 Navigraph / SimBrief 帳號，直接請求一鍵放行航班。
 - **原因分析**：後端簽派 API 需依賴個別機師授權之 SimBrief OAuth Token 方能建立個人化航圖與 OFP，若無 Token 會收到 HTTP 400（`SimBrief account not linked`）。
-- **解決對策**：在 `simbrief_tool.py` 與 `agent.py` 內建置帳號狀態防禦檢查。當偵測到未綁定時，Agent 不拋出例外亦不盲目輸出無效連結，而是精確給出引導步驟，指示機師前往 BRVA 簽派中心完成授權登錄。
+- **解決對策**：在 `simbrief_tool.py` 與 `agent.py` 內建置帳號狀態防禦檢查。當偵測到未綁定時，Agent 不拋出例外亦不盲目輸出無效連結，而是精確告知內部 Dispatch 已為其保留，並指示機師前往 BRVA 簽派中心完成授權登錄。
+
+### 失敗情境四：未授權訪客存取飛官機敏檔案或非法觸發購買 (Unauthenticated / Mutation Guard)
+- **失敗狀況**：訪客或未帶授權 Token 之會話請求查詢個人時數、點數餘額，或試圖要求 AI「幫我買商城商品」。
+- **原因分析**：多輪對話中可能存在提示詞注入（Prompt Injection）或未認證惡意調用，造成飛官隱私洩漏或非預期資產消耗。
+- **解決對策**：
+  1. 實作 `UserContext` 鑑別閘門，未通過 Scoped Delegation Token 驗證者嚴格拒絕存取個人數據。
+  2. 商城工具 `query_store_catalog` 鎖定 `can_purchase = False` 嚴格唯讀機制，杜絕任何代購變更行為。
 
 ---
 
 ## 五、 自動化測試證據 (Verification Evidence)
 
-本專案具備完整的自動化單元測試，涵蓋三角函數計算、航線匹配、OFP 產生、黑盒子超速/硬著陸、RAG 知識庫檢索與權威引文合成、多供應商 LLM 抽象層 (Ollama/Gemini/Offline)、後端 API Key 與 Master Killswitch 管控，以及 Podman 容器化標準建置檢測：
+本專案具備完整的自動化單元測試，涵蓋三角函數計算、航線匹配、OFP 產生、黑盒子超速/硬著陸、RAG 知識庫檢索與權威引文合成、多供應商 LLM 抽象層 (Ollama/Gemini/Offline)、後端 API Key 與 Master Killswitch 管控、飛官身分委派授權驗證，以及 Podman 容器化標準建置檢測：
 
 ```bash
 python -m unittest discover tests
@@ -224,17 +253,17 @@ python -m unittest discover tests
 
 **測試執行結果**：
 ```text
-.........................................
+..............................................
 ----------------------------------------------------------------------
-Ran 41 tests in 0.660s
+Ran 46 tests in 1.060s
 
 OK
 ```
-**41 項單元測試 100% 全數通過**：
-- 工具運算與防護：16 項測試（風向三角函數、黑盒子過載/超速滑動視窗）
+**46 項單元測試 100% 全數通過**：
+- 工具運算與防護：18 項測試（風向三角函數、黑盒子過載/超速滑動視窗、離線/已認證簽派）
 - Aviation RAG 知識庫：9 項測試（BM25 檢索、引文標籤生成、章節過濾）
 - LLM 多供應商抽象層：8 項測試（Ollama、Gemini、Offline 確定性回退）
-- 後端 API 安全管控：8 項測試（API Key 鑑別、503 Killswitch、429 Rate Limit）
+- 後端 API 安全管控與飛官授權委派：11 項測試（API Key 鑑別、503 Killswitch、429 Rate Limit、Token 驗證、個人檔案查詢、商城唯讀防護）
 
 ---
 
@@ -252,15 +281,28 @@ BRVA_Agent/
 │   ├── sample_flight_fail.csv # 考試違規遙測樣本 (超速/硬著陸)
 │   ├── local_fallback_routes.csv # 離線備用長榮航網庫
 │   └── knowledge/             # SOP、Live 規章與術科檢定手冊
+├── documents/                 # 作業技術規格與架構規劃書
+│   └── BRVA_Agent_Assignment2_Report.md # 作業二正式技術報告文件
 ├── scripts/
-│   └── demo_test_suite.py     # 一鍵全自動 6 大實戰流程展示腳本
+│   ├── demo_test_suite.py     # 一鍵全自動 8 大實戰流程展示腳本
+│   └── test_comprehensive_scenarios.py # 完整綜合實戰測試套件
 ├── src/
 │   ├── agent.py               # ReAct 決策循環與 Human-in-the-Loop
-│   ├── client.py              # 後端 API 通訊客戶端 (支援 x-agent-key)
+│   ├── client.py              # 後端 API 通訊客戶端 (支援 x-agent-key 與 Bearer Token)
 │   ├── config.py              # 全域參數與環境變數載入
+│   ├── context.py             # 飛官身分與授權上下文 (UserContext)
 │   ├── memory.py              # 多輪對話與待簽派狀態記憶體
 │   ├── llm/                   # 抽象層 (Ollama / Gemini / Offline)
-│   ├── tools/                 # 5 大確定性航空專業工具
+│   ├── tools/                 # 7 大確定性航空專業工具
+│   │   ├── weather_tool.py    # 起降氣象與側風運算
+│   │   ├── route_tool.py      # 長榮虛擬航網查詢
+│   │   ├── simbrief_tool.py   # OFP 飛行放行單生成
+│   │   ├── telemetry_tool.py  # 黑盒子 Pandas 向量化檢驗
+│   │   ├── rag_tool.py        # 民航法規 RAG 檢索增強
+│   │   ├── user_profile_tool.py # 飛官個人檔案與時數點數
+│   │   └── store_catalog_tool.py # 飛官商城唯讀目錄
+│   └── ui/                    # CLI 與 Streamlit Web 雙模式介面
+└── tests/                     # 46 項自動化單元測試套件
 │   └── ui/                    # CLI 與 Streamlit Web 雙模式介面
 └── tests/                     # 41 項自動化測試套件
 ```

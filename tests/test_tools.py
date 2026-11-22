@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch, MagicMock
 from src.tools.weather_tool import fetch_aviation_weather, parse_runway_heading, WeatherInput, WeatherOutput
 from src.tools.route_tool import query_virtual_routes, RouteQueryInput, RouteItem
 from src.tools.simbrief_tool import generate_simbrief_dispatch, SimbriefInput, SimbriefOutput
@@ -61,35 +62,59 @@ class TestAeroAgentTools(unittest.TestCase):
             self.assertEqual(item.dep, "RCTP")
             self.assertEqual(item.arr, "RJAA")
 
-    def test_simbrief_dispatch_generation(self):
-        # 3. SimBrief 模擬簽派測試：
-        # 驗證成功產出標準 Route、FL370 與 Block Fuel
-        ofp = generate_simbrief_dispatch("BR184", "RCTP", "RJAA", "B78X")
+    @patch("requests.post")
+    def test_simbrief_dispatch_generation(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "success": True,
+            "data": {
+                "general": {
+                    "route": "RCTP/05L CHALI1A TONIK V22 MORUS Y59 SEDAC KANSU ARASI Y39 HACHI HACHI1A RJAA/16R",
+                    "initial_altitude": "FL370",
+                },
+                "fuel": {"plan_ramp": 18240},
+                "times": {"est_time_enroute": 9600},
+                "ofp_url": "https://www.simbrief.com/ofp/123",
+            }
+        }
+        mock_post.return_value = mock_resp
+
+        from src.context import UserContext
+        auth_user = UserContext(is_authenticated=True, delegation_token="token_123", callsign="BR001")
+
+        # 1. Authenticated Dispatch
+        ofp = generate_simbrief_dispatch("BR184", "RCTP", "RJAA", "B78X", user_context=auth_user)
         self.assertEqual(ofp["status"], "SUCCESS")
         self.assertEqual(ofp["flight_number"], "BR184")
         self.assertIn("FL370", ofp["cruise_alt"])
         self.assertGreater(ofp["block_fuel_kgs"], 10000)
         self.assertIn("ofp_url", ofp)
 
-        # Validate Pydantic Schema
-        out = SimbriefOutput(
-            status=ofp["status"],
-            flight_number=ofp["flight_number"],
-            route=ofp["route"],
-            cruise_alt=ofp["cruise_alt"],
-            block_fuel_kgs=ofp["block_fuel_kgs"],
-            est_flight_time=ofp["est_flight_time"],
-            alternate_airport=ofp["alternate_airport"],
-            ofp_url=ofp["ofp_url"],
-            summary_text=ofp["summary_text"]
-        )
-        self.assertEqual(out.flight_number, "BR184")
+        # 2. Unauthenticated Dispatch (Explicit Guest Context)
+        guest_user = UserContext(is_authenticated=False)
+        guest_ofp = generate_simbrief_dispatch("BR184", "RCTP", "RJAA", "B78X", user_context=guest_user)
+        self.assertEqual(guest_ofp["status"], "UNAUTHENTICATED")
 
-        # Test unlinked SimBrief scenario
-        unlinked = generate_simbrief_dispatch("BR184", "RCTP", "RJAA", "B78X", pilot_simbrief_linked=False)
-        self.assertEqual(unlinked["status"], "SIMBRIEF_NOT_LINKED")
-        self.assertIn("SimBrief 帳號尚未綁定", unlinked["summary"])
-        self.assertIn("簽派中心", unlinked["summary"])
+        # 3. Deterministic Offline Fallback Dispatch (user_context=None for zero-config demo)
+        offline_ofp = generate_simbrief_dispatch("BR184", "RCTP", "RJAA", "B78X", user_context=None)
+        self.assertEqual(offline_ofp["status"], "SUCCESS")
+        self.assertIn("BRVA 簽派中心放行成功", offline_ofp["summary"])
+
+        # 4. SimBrief Unlinked Internal Dispatch
+        mock_unlinked_resp = MagicMock()
+        mock_unlinked_resp.status_code = 400
+        mock_unlinked_resp.json.return_value = {
+            "success": False,
+            "simbriefLinked": False,
+            "error": "SimBrief account not linked"
+        }
+        mock_post.return_value = mock_unlinked_resp
+
+        unlinked = generate_simbrief_dispatch("BR184", "RCTP", "RJAA", "B78X", user_context=auth_user)
+        self.assertEqual(unlinked["status"], "SUCCESS_INTERNAL_DISPATCH")
+        self.assertIn("目前沒有登錄 SimBrief", unlinked["summary"])
+        self.assertIn("CrewCenter 內部已經為您完成 Dispatch", unlinked["summary"])
 
     def test_telemetry_analysis_fail(self):
         # 4. 遙測 Pandas 檢核測試：

@@ -1,16 +1,14 @@
-import os
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from src.client import backend_client
+from src.context import UserContext
 
 class SimbriefInput(BaseModel):
     flight_number: str = Field(..., description="航班號碼，如 'BR184'")
     dep_icao: str = Field(..., description="起飛機場 ICAO，如 'RCTP'")
     arr_icao: str = Field(..., description="目的地機場 ICAO，如 'RJAA'")
     aircraft_type: str = Field("B78X", description="機型，如 'B78X'")
-    pilot_simbrief_linked: Optional[bool] = Field(None, description="飛行員是否已於簽派中心綁定 SimBrief 帳號")
 
-# Backward-compatible alias
 SimbriefDispatchInput = SimbriefInput
 
 class SimbriefOutput(BaseModel):
@@ -29,95 +27,99 @@ def generate_simbrief_dispatch(
     dep_icao: str,
     arr_icao: str,
     aircraft_type: str = "B78X",
-    pilot_simbrief_linked: Optional[bool] = None
+    user_context: Optional[UserContext] = None
 ) -> Dict[str, Any]:
     """
-    Generates an Operational Flight Plan (OFP) through the BRVA Dispatch Center & SimBrief service.
-    Directs to BRVA Dispatch Center to dispatch the flight on behalf of the pilot.
-    If the pilot has not linked their SimBrief account, returns status SIMBRIEF_NOT_LINKED with instructions.
-    On success, returns the comprehensive Dispatch Center release without external SimBrief web links.
+    Triggers official flight dispatch and SimBrief OFP plan on behalf of the authenticated pilot.
+    If the pilot has not linked their CrewCenter account, prompts for account linking.
+    If SimBrief is not linked, confirms internal CrewCenter dispatch.
     """
-    clean_flt = (flight_number or "").strip().upper()
+    clean_flt = (flight_number or "").strip().toUpperCase() if hasattr(flight_number, "toUpperCase") else (flight_number or "").strip().upper()
     clean_dep = (dep_icao or "").strip().upper()
     clean_arr = (arr_icao or "").strip().upper()
-    clean_type = (aircraft_type or "").strip().upper()
+    clean_type = (aircraft_type or "B78X").strip().upper()
 
-    # Check environment variable for unlinked simulation if not explicitly provided
-    env_linked = os.environ.get("SIMBRIEF_ACCOUNT_LINKED", "true").strip().lower()
-    is_linked = pilot_simbrief_linked if pilot_simbrief_linked is not None else (env_linked not in ("false", "0", "no"))
-
-    if not is_linked:
-        summary_unlinked = (
-            "⚠️ 【簽派中斷：SimBrief 帳號尚未綁定】\n"
-            f"報告機長，系統檢測到您在 BRVA 簽派中心當前尚未登錄或綁定 SimBrief (Navigraph) 帳號，無法為 {clean_flt} 自動生成飛行計畫。\n\n"
-            "👉 請依照以下步驟完成綁定：\n"
-            "1. 前往 BRVA 官方簽派中心 (Dispatch Center) 或個人中心帳號設定。\n"
-            "2. 點擊「連結 SimBrief 帳號」完成 Navigraph 帳號授權登錄。\n"
-            "3. 授權完成後即可由副駕直接為您一鍵生成官方 OFP 放行單並建立 Active Dispatch！"
+    # 1. Check Explicit Unauthenticated State (Guest with Context)
+    if user_context is not None and (not user_context.is_authenticated or not user_context.delegation_token):
+        unauth_msg = (
+            "⚠️ 長官，檢測到您目前尚未登入 CrewCenter 連結個人帳號！\n"
+            "請先在左側邊欄【飛官帳號連結】貼入您的專屬授權碼以完成連結，"
+            "我才能為您在 CrewCenter 派遣中心建立派飛單與生成 SimBrief 計畫喔！\n"
+            "不過公開航線與機場氣象我隨時可以為您查詢。"
         )
         return {
-            "status": "SIMBRIEF_NOT_LINKED",
+            "status": "UNAUTHENTICATED",
             "flight_number": clean_flt,
             "dep_icao": clean_dep,
             "arr_icao": clean_arr,
             "aircraft_type": clean_type,
-            "error": "SimBrief account not linked",
-            "summary_text": summary_unlinked,
-            "summary": summary_unlinked,
+            "summary": unauth_msg,
+            "summary_text": unauth_msg,
         }
 
-    # 1. Try triggering dispatch through Backend API
-    backend_res = backend_client.post("/api/dispatch/simbrief", json_data={
-        "airline": "EVA",
-        "fltnum": clean_flt.replace("BR", "").replace("EVA", ""),
-        "type": clean_type,
-        "orig": clean_dep,
-        "dest": clean_arr,
-        "pax": "AUTO",
-        "cargo": "AUTO",
-    })
+    # 2. Authenticated Flight Dispatch via Backend API
+    if user_context is not None and user_context.is_authenticated and user_context.delegation_token:
+        backend_res = backend_client.post(
+            "/api/dispatch/simbrief",
+            json_data={
+                "airline": "EVA",
+                "fltnum": clean_flt.replace("BR", "").replace("EVA", ""),
+                "type": clean_type,
+                "orig": clean_dep,
+                "dest": clean_arr,
+                "pax": "AUTO",
+                "cargo": "AUTO",
+                "flightNumber": clean_flt,
+            },
+            user_token=user_context.delegation_token
+        )
 
-    if backend_res:
-        status_code = backend_res.get("_status_code")
-        err_msg = str(backend_res.get("error", "")).lower()
-        if status_code in (400, 401) or "not linked" in err_msg or "simbrief account" in err_msg:
-            summary_unlinked = (
-                "⚠️ 【簽派中斷：SimBrief 帳號尚未綁定】\n"
-                f"報告機長，系統檢測到您在 BRVA 簽派中心當前尚未登錄或綁定 SimBrief (Navigraph) 帳號，無法為 {clean_flt} 自動生成飛行計畫。\n\n"
-                "👉 請依照以下步驟完成綁定：\n"
-                "1. 前往 BRVA 官方簽派中心 (Dispatch Center) 或個人中心帳號設定。\n"
-                "2. 點擊「連結 SimBrief 帳號」完成 Navigraph 帳號授權登錄。\n"
-                "3. 授權完成後即可由副駕直接為您一鍵生成官方 OFP 放行單並建立 Active Dispatch！"
+        # Handle SimBrief Not Linked
+        is_simbrief_unlinked = False
+        if backend_res:
+            if backend_res.get("simbriefLinked") is False:
+                is_simbrief_unlinked = True
+            elif backend_res.get("_status_code") == 400 and "SimBrief account not linked" in str(backend_res.get("error", "")):
+                is_simbrief_unlinked = True
+
+        if is_simbrief_unlinked:
+            unlinked_msg = (
+                f"長官，目前沒有登錄 SimBrief，因此我目前沒辦法幫您生成 SimBrief 計畫，"
+                f"不過 CrewCenter 內部已經為您完成 Dispatch 了！\n"
+                f"• 執飛航班：{clean_flt}\n"
+                f"• 起訖場站：{clean_dep} ➔ {clean_arr}\n"
+                f"• 機型指派：{clean_type}\n"
+                f"• 執飛飛官：{user_context.callsign or 'PILOT'}\n"
+                f"您可隨時至 CrewCenter 派遣中心 (Dispatch Center) 查看或領取此航班起飛！"
             )
             return {
-                "status": "SIMBRIEF_NOT_LINKED",
+                "status": "SUCCESS_INTERNAL_DISPATCH",
                 "flight_number": clean_flt,
                 "dep_icao": clean_dep,
                 "arr_icao": clean_arr,
                 "aircraft_type": clean_type,
-                "error": backend_res.get("error") or "SimBrief account not linked",
-                "summary_text": summary_unlinked,
-                "summary": summary_unlinked,
+                "simbrief_linked": False,
+                "summary": unlinked_msg,
+                "summary_text": unlinked_msg,
             }
 
-        if backend_res.get("success"):
-            data = backend_res.get("data") or {}
-            # If backend provides simbrief data
-            general = data.get("general", {}) if isinstance(data, dict) else {}
-            origin = data.get("origin", {}) if isinstance(data, dict) else {}
-            dest = data.get("destination", {}) if isinstance(data, dict) else {}
-            fuel = data.get("fuel", {}) if isinstance(data, dict) else {}
-            times = data.get("times", {}) if isinstance(data, dict) else {}
+        if backend_res and (backend_res.get("success") or "general" in backend_res):
+            ofp_data = backend_res.get("data") or backend_res
+            general = ofp_data.get("general") or {}
+            fuel = ofp_data.get("fuel") or {}
+            times = ofp_data.get("times") or {}
 
             route_str = general.get("route") or f"{clean_dep} DCT {clean_arr}"
             cruise_alt = general.get("initial_altitude") or "FL370"
-            if not str(cruise_alt).upper().startswith("FL") and str(cruise_alt).isdigit():
-                cruise_alt = f"FL{int(cruise_alt)//100}"
-            block_fuel = int(fuel.get("plan_ramp", 18240))
-            est_time = times.get("est_time_enroute") or "02:40"
-            alt_airport = dest.get("alternate_icao") or "RJTT"
+            block_fuel = int(fuel.get("plan_ramp") or fuel.get("block_fuel") or 18240)
+            est_time_sec = int(times.get("est_time_enroute") or 9600)
+            hours = est_time_sec // 3600
+            mins = (est_time_sec % 3600) // 60
+            est_time_str = f"{hours:02d}:{mins:02d}"
+            alternate = ofp_data.get("alternate", {}).get("icao") or "RJTT"
+            ofp_url = ofp_data.get("ofp_url") or f"https://www.simbrief.com/system/dispatch.api.php?orig={clean_dep}&dest={clean_arr}&type={clean_type}&fltnum={clean_flt.replace('BR', '')}&airline=EVA"
 
-            summary_text = (
+            summary = (
                 f"✅ 【BRVA 簽派中心放行成功】\n"
                 f"已代表機長於 BRVA 簽派中心為 {clean_flt} 完成正式簽派與 OFP 飛行計畫生成！\n\n"
                 f"📋 【航班簽派放行概要 (Dispatch Release)】：\n"
@@ -125,15 +127,13 @@ def generate_simbrief_dispatch(
                 f"• 航線起訖：{clean_dep} 🛫 ➡️ {clean_arr} 🛬\n"
                 f"• 執飛機型：{clean_type} 客機\n"
                 f"• 航路規劃 (Route)：{route_str}\n"
-                f"• 巡航高度：{cruise_alt}\n"
+                f"• 巡航高度：{cruise_alt} ｜ 預估航程時間：{est_time_str}\n"
                 f"• 計畫燃油 (Block Fuel)：{block_fuel:,} kg\n"
-                f"• 預估航程時間：{est_time}\n"
-                f"• 法定備降機場：{alt_airport}\n\n"
+                f"• 法定備降場 (Alternate)：{alternate}\n\n"
                 f"📡 【簽派中心狀態 (Active Dispatch)】：\n"
                 f"• 放行狀態：✅ 已核准放行 (ACTIVE DISPATCH)\n"
                 f"• 系統已將飛行計畫同步登錄至 BRVA 簽派中心，機長可直接載入機載航電執飛！"
             )
-
             return {
                 "status": "SUCCESS",
                 "flight_number": clean_flt,
@@ -144,40 +144,55 @@ def generate_simbrief_dispatch(
                 "cruise_alt": cruise_alt,
                 "cruise_altitude": cruise_alt,
                 "block_fuel_kgs": block_fuel,
-                "est_flight_time": est_time,
-                "estimated_flight_time": est_time,
-                "alternate_airport": alt_airport,
-                "ofp_url": None,
-                "summary_text": summary_text,
-                "summary": summary_text,
+                "est_flight_time": est_time_str,
+                "estimated_flight_time": est_time_str,
+                "alternate_airport": alternate,
+                "ofp_url": ofp_url,
+                "simbrief_linked": True,
+                "summary": summary,
+                "summary_text": summary,
             }
 
-    # 2. Realistic Simulated BRVA Dispatch Center Release (Fallback & Standalone)
-    # Provides realistic IFR routing for common EVA Air city pairs
+        # CrewCenter Connection Offline when authenticated
+        offline_msg = (
+            f"⚠️ 報告長官，目前似乎無法連線到 CrewCenter 簽派中心伺服器（連線逾時或伺服器維護中），"
+            f"無法為您建立航班 {clean_flt} 之簽派放行單，請稍後再次嘗試。"
+        )
+        return {
+            "status": "CREWCENTER_OFFLINE",
+            "flight_number": clean_flt,
+            "dep_icao": clean_dep,
+            "arr_icao": clean_arr,
+            "aircraft_type": clean_type,
+            "summary": offline_msg,
+            "summary_text": offline_msg,
+        }
+
+    # 3. Deterministic Offline Fallback / Evaluation Mode (user_context is None)
     routes_database = {
         ("RCTP", "RJAA"): {
             "route": "RCTP/05L CHALI1A TONIK V22 MORUS Y59 SEDAC KANSU ARASI Y39 HACHI HACHI1A RJAA/16R",
             "alt": "FL370",
             "fuel_kgs": 18240,
             "time": "02:40",
-            "alternate": "RJTT (Tokyo Haneda)",
+            "alternate": "RJTT",
             "ci": "035"
         },
         ("RCTP", "RJBB"): {
-            "route": "RCTP/05L CHALI1A TONIK V22 MORUS Y59 SEDAC KANSU ALISA ALISA1A RJBB/24L",
-            "alt": "FL390",
-            "fuel_kgs": 14100,
-            "time": "02:00",
-            "alternate": "RJOO (Osaka Itami)",
-            "ci": "030"
+            "route": "RCTP/05L CHALI1A TONIK V22 MORUS Y59 SEDAC KANSU ARASI Y39 HACHI RJBB/06R",
+            "alt": "FL360",
+            "fuel_kgs": 16800,
+            "time": "02:15",
+            "alternate": "RJOO",
+            "ci": "035"
         },
         ("RCTP", "VHHH"): {
-            "route": "RCTP/05L PIANO1A TEPIS M750 ELATO ENKOS ENKOS1A VHHH/07L",
-            "alt": "FL340",
-            "fuel_kgs": 9400,
-            "time": "01:25",
-            "alternate": "VMMC (Macau)",
-            "ci": "040"
+            "route": "RCTP/05L TAWEN M750 EXTRA VHHH/07L",
+            "alt": "FL320",
+            "fuel_kgs": 11200,
+            "time": "01:30",
+            "alternate": "VMMC",
+            "ci": "030"
         }
     }
 
@@ -222,6 +237,7 @@ def generate_simbrief_dispatch(
         "estimated_flight_time": plan_info["time"],
         "alternate_airport": plan_info["alternate"],
         "ofp_url": None,
+        "simbrief_linked": True,
         "summary_text": summary_text,
         "summary": summary_text,
     }
