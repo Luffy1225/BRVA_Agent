@@ -169,15 +169,23 @@ python -m unittest discover tests
 [📥 Observation] -> OFP 產出成功！巡航高度 FL370，Block Fuel 18,240 kg
 
 🤖 簽派副駕:
-✅ BR184 (RCTP ➡️ RJAA) 簽派計畫已成功生成！
-• 機型：B78X 客機
-• 航路：RCTP/05L CHALI1A TONIK V22 MORUS Y59 SEDAC KANSU ARASI Y39 HACHI HACHI1A RJAA/16R
+✅ 【BRVA 簽派中心放行成功】
+已代表機長於 BRVA 簽派中心為 BR184 完成正式簽派與 OFP 飛行計畫生成！
+
+📋 【航班簽派放行概要 (Dispatch Release)】：
+• 航班編號：BR184
+• 航線起訖：RCTP 🛫 ➡️ RJAA 🛬
+• 執飛機型：B78X 客機
+• 航路規劃 (Route)：RCTP/05L CHALI1A TONIK V22 MORUS Y59 SEDAC KANSU ARASI Y39 HACHI HACHI1A RJAA/16R
 • 巡航高度：FL370 ｜ 成本指數 (CI)：035
 • 計畫燃油 (Block Fuel)：18,240 kg
+• 預估航程時間：02:40
 • 法定備降場 (Alternate)：RJTT (Tokyo Haneda)
-• 預估航行時間：02:40
 
-🔗 SimBrief 官方計畫連結：https://www.simbrief.com/system/dispatch.api.php?...
+📡 【簽派中心狀態 (Active Dispatch)】：
+• 放行狀態：✅ 已核准放行 (ACTIVE DISPATCH)
+• 系統已將飛行計畫同步登錄至 BRVA 簽派中心，機長可直接載入機載航電執飛！
+
 祝機長本次飛行平安順利，Happy Landings！
 ```
 
@@ -198,6 +206,11 @@ python -m unittest discover tests
 - **失敗狀況**：在 FL100 以下因大氣亂流，空速在單一取樣點（0.2 秒）瞬間微幅超出 250 KIAS（如 251.2 KIAS），隨即被飛行員油門收回至 244 KIAS。若套用傳統單點數值比較，會被誤判違規並扣除 10 分，引發考核不公。
 - **原因分析**：大氣物理環境具有不可抗力的亂流噪聲，單點臨界跳動不屬於操作違規。
 - **解決對策**：在 `telemetry_tool.py` 內導入 **滑動視窗持續時間檢測門檻（Rolling Window Persistence）**，規定物理超速必須「連續持續 $\ge 2$ 秒（$\ge 2$ 筆取樣）」才被計為有效違規事件，大幅提升客觀性與容錯率。
+
+### 失敗情境三：飛行員未綁定 SimBrief 帳號之簽派中斷 (SimBrief Account Not Linked)
+- **失敗狀況**：飛行員尚未於 BRVA 個人中心綁定 Navigraph / SimBrief 帳號，直接請求一鍵放行航班。
+- **原因分析**：後端簽派 API 需依賴個別機師授權之 SimBrief OAuth Token 方能建立個人化航圖與 OFP，若無 Token 會收到 HTTP 400（`SimBrief account not linked`）。
+- **解決對策**：在 `simbrief_tool.py` 與 `agent.py` 內建置帳號狀態防禦檢查。當偵測到未綁定時，Agent 不拋出例外亦不盲目輸出無效連結，而是精確給出引導步驟，指示機師前往 BRVA 簽派中心完成授權登錄。
 
 ---
 

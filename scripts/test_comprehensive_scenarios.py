@@ -55,11 +55,18 @@ def run_scenarios():
     print(f"\n🤖 Agent 回應:\n{resp2}\n")
 
     # 驗證第二輪
-    assert "簽派計畫已成功生成" in resp2 or "OFP" in resp2, "第二輪應成功產出簽派放行單"
-    assert "FL370" in resp2, "放行單應包含巡航高度"
-    assert "SimBrief" in resp2, "放行單應包含 SimBrief 計畫連結"
-    assert agent.memory.get_pending() is None, "簽派完成後 Memory pending 狀態應已清空"
-    print("✅ [PASS] 第二輪成功授權完成 SimBrief 官方放行單生成！")
+    if "SimBrief 帳號尚未綁定" in resp2:
+        print("ℹ️ [INFO] 後端檢測到當前飛行員 SimBrief 帳號未綁定，精確觸發安全防禦引導流程！")
+        assert "簽派中心" in resp2 or "Dispatch Center" in resp2, "應引導至簽派中心"
+        assert "https://www.simbrief.com" not in resp2, "不應包含外部 SimBrief 網頁連結"
+        print("✅ [PASS] 成功驗證未綁定 SimBrief 狀態下之精確安全提示與簽派中心導向！")
+    else:
+        assert "BRVA 簽派中心放行成功" in resp2 or "OFP" in resp2, "第二輪應成功產出簽派放行單"
+        assert "FL370" in resp2, "放行單應包含巡航高度"
+        assert "ACTIVE DISPATCH" in resp2, "放行單應包含簽派中心放行狀態"
+        assert "https://www.simbrief.com" not in resp2, "不應包含外部 SimBrief 網頁連結"
+        assert agent.memory.get_pending() is None, "簽派完成後 Memory pending 狀態應已清空"
+        print("✅ [PASS] 第二輪成功授權完成 BRVA 簽派中心官方放行單生成！")
 
     # =========================================================================
     # 情境二：區域/國內短程簽派 (RCKH -> RCSS / A321) 與跑道風向分量解析

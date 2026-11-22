@@ -27,7 +27,6 @@ def main():
     print(f"Route: {ofp['route']}")
     print(f"Altitude: {ofp['cruise_alt']} | Block Fuel: {ofp['block_fuel_kgs']} kg | Est Time: {ofp['est_flight_time']}")
     print(f"Alternate: {ofp['alternate_airport']}")
-    print(f"OFP URL: {ofp['ofp_url']}")
 
     print("\n=== Tool 4: analyze_flight_telemetry (Fail Sample) ===")
     t_fail = analyze_flight_telemetry("sample_flight_fail.csv")

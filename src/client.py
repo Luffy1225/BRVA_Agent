@@ -43,8 +43,15 @@ class BackendClient:
             if resp.status_code in (200, 201):
                 return resp.json()
             else:
-                print(f"[BackendClient] Warning: {url} POST returned HTTP {resp.status_code}: {resp.text[:100]}")
-            return None
+                try:
+                    data = resp.json()
+                    if isinstance(data, dict):
+                        data["_status_code"] = resp.status_code
+                        return data
+                    return {"data": data, "_status_code": resp.status_code}
+                except Exception:
+                    print(f"[BackendClient] Warning: {url} POST returned HTTP {resp.status_code}: {resp.text[:100]}")
+                    return {"error": resp.text[:100], "_status_code": resp.status_code}
         except requests.exceptions.RequestException as e:
             print(f"[BackendClient] ⚠️ Network error posting to {url}: {e}")
             return None

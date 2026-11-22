@@ -64,13 +64,19 @@ class AeroAgent:
                 aircraft_type=pending.aircraft_type
             )
 
+            if ofp_result.get("status") == "SIMBRIEF_NOT_LINKED":
+                if verbose:
+                    print(f"[📥 Observation] -> ⚠️ 簽派中斷：飛行員尚未於 BRVA 簽派中心綁定 SimBrief 帳號\n")
+                final_resp = ofp_result.get("summary")
+                self.memory.add_message("assistant", final_resp)
+                return final_resp
+
             if verbose:
-                print(f"[📥 Observation] -> OFP 產出成功！巡航高度 {ofp_result.get('cruise_altitude')}，Block Fuel {ofp_result.get('block_fuel_kgs')} kg\n")
+                print(f"[📥 Observation] -> OFP 產出成功！巡航高度 {ofp_result.get('cruise_altitude') or ofp_result.get('cruise_alt')}，Block Fuel {ofp_result.get('block_fuel_kgs')} kg\n")
 
             self.memory.clear_pending()
             final_resp = (
                 f"{ofp_result['summary']}\n\n"
-                f"🔗 SimBrief 官方計畫連結：{ofp_result.get('simbrief_ofp_url')}\n"
                 f"祝機長本次飛行平安順利，Happy Landings！"
             )
             self.memory.add_message("assistant", final_resp)

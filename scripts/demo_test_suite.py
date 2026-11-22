@@ -46,10 +46,11 @@ def run_e2e_tests():
 
     # 驗證狀態已清除
     assert agent.memory.get_pending() is None, "簽派完成後 Memory 應清空 pending 狀態！"
-    assert "簽派計畫已成功生成" in resp_2, "回應中應包含簽派成功訊息！"
+    assert "BRVA 簽派中心放行成功" in resp_2, "回應中應包含簽派成功訊息！"
     assert "FL370" in resp_2, "應包含巡航高度！"
-    assert "SimBrief" in resp_2, "應包含 SimBrief 資訊！"
-    print("\n✅ [PASS] 第二輪成功授權並產出完整 SimBrief OFP 放行計畫！")
+    assert "ACTIVE DISPATCH" in resp_2, "應包含簽派中心放行狀態！"
+    assert "https://www.simbrief.com" not in resp_2, "不應包含外部 SimBrief 網頁連結！"
+    print("\n✅ [PASS] 第二輪成功授權並產出完整 BRVA Dispatch Center OFP 放行計畫（無外部雜質連結）！")
 
     # -------------------------------------------------------------
     # 測試情境三：黑盒子遙測合格紀錄檢測 (PASS)

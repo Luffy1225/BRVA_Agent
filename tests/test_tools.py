@@ -85,6 +85,12 @@ class TestAeroAgentTools(unittest.TestCase):
         )
         self.assertEqual(out.flight_number, "BR184")
 
+        # Test unlinked SimBrief scenario
+        unlinked = generate_simbrief_dispatch("BR184", "RCTP", "RJAA", "B78X", pilot_simbrief_linked=False)
+        self.assertEqual(unlinked["status"], "SIMBRIEF_NOT_LINKED")
+        self.assertIn("SimBrief 帳號尚未綁定", unlinked["summary"])
+        self.assertIn("簽派中心", unlinked["summary"])
+
     def test_telemetry_analysis_fail(self):
         # 4. 遙測 Pandas 檢核測試：
         # 傳入 sample_flight_fail.csv -> 預期精準標註滑行超速秒數與違規峰值

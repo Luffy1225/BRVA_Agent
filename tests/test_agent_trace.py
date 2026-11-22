@@ -1,3 +1,4 @@
+import os
 import unittest
 from src.agent import AeroAgent
 from src.memory import AgentMemory
@@ -24,10 +25,29 @@ class TestAgentTrace(unittest.TestCase):
         user_turn_2 = "好的，幫我直接簽派！"
         resp_2 = self.agent.run(user_turn_2, verbose=False)
 
-        self.assertIn("簽派計畫已成功生成", resp_2)
+        self.assertIn("BRVA 簽派中心放行成功", resp_2)
         self.assertIn("FL370", resp_2)
-        self.assertIn("SimBrief", resp_2)
+        self.assertIn("ACTIVE DISPATCH", resp_2)
+        self.assertNotIn("https://www.simbrief.com", resp_2)
         self.assertIsNone(self.memory.get_pending())
+
+    def test_unlinked_simbrief_flow(self):
+        # Turn 1: Flight and Weather Query
+        user_turn_1 = "我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣與推薦班次。"
+        resp_1 = self.agent.run(user_turn_1, verbose=False)
+        self.assertIsNotNone(self.memory.get_pending())
+
+        # Simulate Pilot Not Having Linked SimBrief
+        os.environ["SIMBRIEF_ACCOUNT_LINKED"] = "false"
+        try:
+            user_turn_2 = "確認簽派"
+            resp_2 = self.agent.run(user_turn_2, verbose=False)
+
+            self.assertIn("SimBrief 帳號尚未綁定", resp_2)
+            self.assertIn("簽派中心", resp_2)
+            self.assertNotIn("https://www.simbrief.com", resp_2)
+        finally:
+            os.environ.pop("SIMBRIEF_ACCOUNT_LINKED", None)
 
     def test_telemetry_audit_flow(self):
         user_query = "請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄。"
