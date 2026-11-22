@@ -34,8 +34,35 @@ st.caption("長榮虛擬航空 (EVA Air Virtual, BRVA) · 基於多工具協作�
 if "agent" not in st.session_state:
     st.session_state.agent = BRVAAgent()
 
+def _auto_link_pilot(token: str) -> bool:
+    """Helper to verify token and immediately link pilot context."""
+    if not token or not token.strip():
+        return False
+    val_res = backend_client.verify_token(token.strip())
+    if val_res and val_res.get("valid") and val_res.get("user"):
+        u = val_res["user"]
+        u_cs = u.get("callsign") or "N/A"
+        u_name = u.get("username") or config.TEST_PILOT_USERNAME or "Pilot"
+        st.session_state.user_context = UserContext(
+            is_authenticated=True,
+            user_id=str(u.get("userId")),
+            callsign=u_cs,
+            username=u_name,
+            rank_name=u.get("rankName", "Senior Captain"),
+            points=float(u.get("points") or 0.0),
+            flight_time_hours=float(u.get("flightTimeHours") or 0.0),
+            delegation_token=token.strip(),
+            scopes=u.get("scopes") or ["dispatch", "profile:read", "store:read", "routes"]
+        )
+        return True
+    return False
+
 if "user_context" not in st.session_state:
     st.session_state.user_context = UserContext()
+    # Auto-link if OFFICIAL_TEST_TOKEN is already loaded in config
+    target_init_token = config.OFFICIAL_TEST_TOKEN or os.getenv("OFFICIAL_TEST_TOKEN", "")
+    if target_init_token:
+        _auto_link_pilot(target_init_token)
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
@@ -77,7 +104,18 @@ def on_import_secret_clicked():
             ollama_model=config.OLLAMA_MODEL,
         )
         st.session_state.agent = BRVAAgent(llm_provider=new_prov)
-        st.session_state["_secret_import_msg"] = ("success", "✅ 已成功從 `sercet.txt` 載入並套用參數！")
+
+        # Auto-link pilot on import so users can use immediately without extra manual steps
+        token = loaded.get("OFFICIAL_TEST_TOKEN") or st.session_state.get("top_crewcenter_token_input", "")
+        if token and token.strip():
+            linked = _auto_link_pilot(token.strip())
+            if linked:
+                ctx = st.session_state.user_context
+                st.session_state["_secret_import_msg"] = ("success", f"✅ 成功載入 `sercet.txt` 並自動連結飛官：`{ctx.callsign}` ({ctx.username})！")
+            else:
+                st.session_state["_secret_import_msg"] = ("success", "✅ 已成功從 `sercet.txt` 載入並套用參數！")
+        else:
+            st.session_state["_secret_import_msg"] = ("success", "✅ 已成功從 `sercet.txt` 載入並套用參數！")
     else:
         st.session_state["_secret_import_msg"] = ("warning", "⚠️ 未在專案根目錄找到 `sercet.txt` 或 `secret.txt`。")
 
@@ -305,87 +343,56 @@ with st.sidebar:
 
     st.divider()
 
-    st.header("👨‍✈️ 飛官帳號連結 (CrewCenter Link)")
-    
-    # Mode B: Token input linking
+    # Pilot Identity Status Indicator
     ctx = st.session_state.user_context
-
     if ctx.is_authenticated:
         st.success(
-            f"🟢 **已連結飛官：{ctx.callsign} ({ctx.username})**\n\n"
-            f"• 階級：`{ctx.rank_name}` ｜ 點數：`{ctx.points:,.0f} pts`\n\n"
-            f"• 總飛行時數：`{ctx.flight_time_hours:,.1f} h`"
+            f"👨‍✈️ **已連結飛官：{ctx.callsign} ({ctx.username})**\n\n"
+            f"• 階級：`{ctx.rank_name}` ｜ 點數：`{ctx.points:,.0f} pts` ｜ 總時數：`{ctx.flight_time_hours:,.1f} h`"
         )
-        if st.button("🚪 切換回訪客模式 (Unlink)", use_container_width=True):
-            st.session_state.user_context = UserContext()
-            st.info("已解除帳號連結，恢復訪客模式。")
-            st.rerun()
     else:
-        st.caption("👤 目前為訪客模式 (可直接查公開航網、氣象、規章與排行榜)")
+        st.caption("👤 目前為訪客模式（點擊上方【📥 匯入 sercet】自動連結飛官）")
 
-        if st.button("⚡ 一鍵使用測試帳號", use_container_width=True, type="primary"):
-            target_token = top_crewcenter_token.strip() or config.OFFICIAL_TEST_TOKEN or os.getenv("OFFICIAL_TEST_TOKEN", "")
-            if not target_token:
-                st.error("❌ 尚未在 sercet.txt 或上方輸入框設定 CrewCenter 授權碼，請先填入測試授權碼。")
-            else:
-                with st.spinner("向伺服器驗證並載入官方測試帳號..."):
-                    val_res = backend_client.verify_token(target_token)
-                    if val_res and val_res.get("valid") and val_res.get("user"):
-                        u = val_res["user"]
-                        u_cs = u.get("callsign") or "N/A"
-                        u_name = u.get("username") or config.TEST_PILOT_USERNAME or "Pilot"
-                        st.session_state.user_context = UserContext(
-                            is_authenticated=True,
-                            user_id=str(u.get("userId")),
-                            callsign=u_cs,
-                            username=u_name,
-                            rank_name=u.get("rankName", "Senior Captain"),
-                            points=float(u.get("points") or 0.0),
-                            flight_time_hours=float(u.get("flightTimeHours") or 0.0),
-                            delegation_token=target_token,
-                            scopes=u.get("scopes") or ["dispatch", "profile:read", "store:read", "routes"]
-                        )
-                        st.success(f"✅ 成功一鍵連結飛官：{u_cs} ({u_name})！")
-                        st.rerun()
-                    else:
-                        err = val_res.get("error") if val_res else "無法連線至 BRVA API 伺服器"
-                        st.error(f"❌ 授權碼驗證失敗：{err}。請確認後端連線狀態與帳號權限。")
-
-        # Advanced Manual Token Input (Collapsible by default so normal users won't see it directly)
-        with st.expander("🛠️ 進階：手動輸入授權碼", expanded=False):
+    # Advanced Manual Account Management (Collapsible)
+    with st.expander("🛠️ 進階：手動管理飛官帳號與授權碼", expanded=False):
+        if ctx.is_authenticated:
+            st.markdown(
+                f"• **呼號 (Callsign)**：`{ctx.callsign}`\n\n"
+                f"• **飛官姓名**：`{ctx.username}`\n\n"
+                f"• **階級等級**：`{ctx.rank_name}`\n\n"
+                f"• **點數餘額**：`{ctx.points:,.0f} pts`\n\n"
+                f"• **累計時數**：`{ctx.flight_time_hours:,.1f} h`"
+            )
+            if st.button("🚪 切換回訪客模式 (Unlink)", use_container_width=True):
+                st.session_state.user_context = UserContext()
+                st.info("已解除帳號連結，恢復訪客模式。")
+                st.rerun()
+        else:
             token_input = st.text_input(
-                "🔑 CrewCenter 授權碼 / Token",
+                "🔑 手動輸入 CrewCenter 授權碼 / Token",
                 value="",
                 type="password",
                 key="pilot_manual_token_box",
-                help="若您擁有個人 CrewCenter 授權碼，可在此手動輸入並點擊下方按鈕驗證連結。"
+                help="若欲手動切換至其他飛官帳號，可在此貼入授權碼。"
             )
-            if st.button("🔗 驗證並連結", use_container_width=True):
+            if st.button("🔗 驗證並手動連結", use_container_width=True):
                 if not token_input.strip():
                     st.error("請先輸入授權碼！")
                 else:
                     with st.spinner("驗證中..."):
-                        val_res = backend_client.verify_token(token_input.strip())
-                        if val_res and val_res.get("valid") and val_res.get("user"):
-                            u = val_res["user"]
-                            u_cs = u.get("callsign") or "N/A"
-                            u_name = u.get("username") or config.TEST_PILOT_USERNAME or "Pilot"
-                            st.session_state.user_context = UserContext(
-                                is_authenticated=True,
-                                user_id=str(u.get("userId")),
-                                callsign=u_cs,
-                                username=u_name,
-                                rank_name=u.get("rankName", "Senior Captain"),
-                                points=float(u.get("points") or 0.0),
-                                flight_time_hours=float(u.get("flightTimeHours") or 0.0),
-                                delegation_token=token_input.strip(),
-                                scopes=u.get("scopes") or ["dispatch", "profile:read", "store:read", "routes"]
-                            )
-                            st.success(f"✅ 成功連結飛官：{u_cs} ({u_name})！")
+                        if _auto_link_pilot(token_input.strip()):
+                            st.success("✅ 成功手動連結飛官帳號！")
                             st.rerun()
                         else:
-                            err = val_res.get("error") if val_res else "無法連線至後端伺服器或授權碼無效"
-                            st.error(f"❌ 授權碼驗證失敗：{err}")
+                            st.error("❌ 授權碼驗證失敗或無法連線至伺服器。")
+            if top_crewcenter_token.strip():
+                if st.button("⚡ 快速連結上方金鑰框之授權碼", use_container_width=True):
+                    with st.spinner("向伺服器驗證中..."):
+                        if _auto_link_pilot(top_crewcenter_token.strip()):
+                            st.success("✅ 成功連結飛官帳號！")
+                            st.rerun()
+                        else:
+                            st.error("❌ 授權碼驗證失敗。")
 
     # CrewCenter Intro & Direct Link
     st.markdown("---")
@@ -397,13 +404,6 @@ with st.sidebar:
     st.link_button("🌐 前往 CrewCenter", "https://crewcenter.eva-virtual.com", use_container_width=True)
 
     st.divider()
-
-    st.checkbox(
-        "💭 預設展開思考歷程與工具調用",
-        value=False,
-        key="cfg_auto_expand_trace",
-        help="勾選後預設自動展開每則對話上方的思考歷程與工具呼叫；未勾選則保持 Antigravity 式折疊，可隨時點擊展開。"
-    )
 
     st.header("🛠️ 快速測試案例 (Demo Presets)")
     
@@ -473,7 +473,7 @@ def _format_result_payload(result_obj) -> str:
         return result_obj
     return str(result_obj)
 
-def render_trace_expander(trace: list, expanded: bool = False):
+def render_trace_expander(trace: list, expanded: bool = True):
     if not trace:
         return
 
@@ -489,7 +489,7 @@ def render_trace_expander(trace: list, expanded: bool = False):
 
     expander_title = f"💭 思考過程與工具調用 (Thinking & Tools · {badge_str})"
 
-    with st.expander(expander_title, expanded=expanded):
+    with st.expander(expander_title, expanded=True):
         thought_idx = 1
         html_blocks = []
         for step in trace:
@@ -554,7 +554,7 @@ def render_trace_expander(trace: list, expanded: bool = False):
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         if msg["role"] == "assistant" and msg.get("trace"):
-            render_trace_expander(msg["trace"], expanded=st.session_state.get("cfg_auto_expand_trace", False))
+            render_trace_expander(msg["trace"], expanded=True)
         if msg["role"] == "assistant" and msg["content"].startswith("⚠️"):
             st.error(msg["content"])
         else:
@@ -583,7 +583,7 @@ if user_prompt:
             )
             trace = st.session_state.agent.get_last_trace()
 
-        render_trace_expander(trace, expanded=st.session_state.get("cfg_auto_expand_trace", False))
+        render_trace_expander(trace, expanded=True)
         if response.startswith("⚠️"):
             st.error(response)
         else:
