@@ -9,7 +9,7 @@ from src.config import (
     SUPPORTED_GEMINI_MODELS,
     SUPPORTED_OLLAMA_MODELS,
 )
-from src.agent import AeroAgent
+from src.agent import BRVAAgent, AeroAgent
 from src.client import backend_client
 from src.llm import get_llm_provider
 
@@ -28,17 +28,16 @@ def display_current_config_banner():
     print(f"   • Google Gemini API Key       : {mask_secret(config.GEMINI_API_KEY)}")
     print(f"   • Ollama 主機網址             : {config.OLLAMA_BASE_URL} ({config.OLLAMA_MODEL})")
     print(f"   • BRVA 後端伺服器 (Base URL)   : {config.BRVA_API_BASE_URL}")
-    print(f"   • BRVA Agent 機器金鑰         : {mask_secret(config.BRVA_AGENT_API_KEY)}")
     print("----------------------------------------------------------------------")
 
 
-def prompt_configuration_wizard() -> AeroAgent:
+def prompt_configuration_wizard() -> BRVAAgent:
     """
     Interactive wizard for configuring parameters and selecting models upon startup.
-    Prompts for Gemini API, BRVA API key, models, and endpoints.
+    Prompts for Gemini API, models, and backend endpoint (x-agent-key is handled automatically).
     """
     print("\n" + "=" * 70)
-    print("⚙️  【AeroAgent 系統參數配置與 AI 模型選型精靈】")
+    print("⚙️  【BRVA Agent 系統參數配置與 AI 模型選型精靈】")
     print("   (可直接按 [Enter] 保留方括號內的目前設定)")
     print("=" * 70)
 
@@ -69,23 +68,12 @@ def prompt_configuration_wizard() -> AeroAgent:
             updates["GEMINI_API_KEY"] = gem_key_input
 
         print("\n🤖 請選擇 Gemini 模型選型：")
-        print("   1. gemini-3.5-flash-lite (推薦預設：最新輕量快速推論)")
-        print("   2. gemini-2.5-flash (推薦：最新高速多模態推論)")
-        print("   3. gemini-1.5-flash (輕量高速、百萬 Token 長上下文)")
-        print("   4. gemini-2.0-flash (最新 2.0 架構)")
-        print("   5. gemini-1.5-pro (深度複雜長程推理)")
-        print("   6. 自訂模型名稱 (手動輸入)")
-        m_input = input(f"👉 請選擇模型 [1-6] (目前: {config.GEMINI_MODEL}): ").strip()
-        gemini_models_map = {
-            "1": "gemini-3.5-flash-lite",
-            "2": "gemini-2.5-flash",
-            "3": "gemini-1.5-flash",
-            "4": "gemini-2.0-flash",
-            "5": "gemini-1.5-pro",
-        }
-        if m_input in gemini_models_map:
-            updates["GEMINI_MODEL"] = gemini_models_map[m_input]
-        elif m_input == "6":
+        print("   1. gemini-3.5-flash-lite (推薦預設：最新超輕量高速推論)")
+        print("   2. 自訂模型名稱 (手動輸入)")
+        m_input = input(f"👉 請選擇模型 [1-2] (目前: {config.GEMINI_MODEL}): ").strip()
+        if m_input == "1" or not m_input:
+            updates["GEMINI_MODEL"] = "gemini-3.5-flash-lite"
+        elif m_input == "2":
             custom_model = input("   請輸入自訂 Gemini 模型名稱: ").strip()
             if custom_model:
                 updates["GEMINI_MODEL"] = custom_model
@@ -122,18 +110,14 @@ def prompt_configuration_wizard() -> AeroAgent:
             updates["OLLAMA_MODEL"] = ol_m_input
 
     # -------------------------------------------------------------
-    # 步驟 2：BRVA 後端 API 參數 (Backend Connection)
+    # 步驟 2：BRVA 後端 API 伺服器網址
     # -------------------------------------------------------------
-    print("\n[步驟 2/3] BRVA 後端 API 連線參數：")
-    brva_url_prompt = f"👉 請輸入 BRVA 後端 API 伺服器網址 [目前: {config.BRVA_API_BASE_URL}]: "
+    print("\n[步驟 2/3] BRVA 後端 API 伺服器網址：")
+    print("   💡 線上正式站: https://api.eva-virtual.com | 本地開發: http://localhost:3000")
+    brva_url_prompt = f"👉 請輸入 BRVA 後端網址 [目前: {config.BRVA_API_BASE_URL}，直接按 Enter 保留]: "
     brva_url_input = input(brva_url_prompt).strip()
     if brva_url_input:
         updates["BRVA_API_BASE_URL"] = brva_url_input
-
-    brva_key_prompt = f"👉 請輸入 BRVA Agent 機器金鑰 (x-agent-key) [目前: {mask_secret(config.BRVA_AGENT_API_KEY)}，直接按 Enter 保留]: "
-    brva_key_input = input(brva_key_prompt).strip()
-    if brva_key_input:
-        updates["BRVA_AGENT_API_KEY"] = brva_key_input
 
     # -------------------------------------------------------------
     # 步驟 3：儲存與持久化 (Persistence)
@@ -158,55 +142,56 @@ def prompt_configuration_wizard() -> AeroAgent:
         ollama_model=config.OLLAMA_MODEL,
     )
     backend_client.configure(
-        base_url=config.BRVA_API_BASE_URL,
-        api_key=config.BRVA_AGENT_API_KEY
+        base_url=config.BRVA_API_BASE_URL
     )
 
-    # Health check & Diagnostic summary
-    print("\n🔍 正在驗證連線健康度...")
+    # Health check & Diagnostic summary (3-tier)
+    print("\n🔍 正在驗證三層連線健康度...")
     llm_ok, llm_msg = new_provider.test_connection()
     llm_badge = "🟢" if llm_ok else "🔴"
-    print(f"   • AI 模型狀態 ({new_provider.provider_name.upper()}): {llm_badge} {llm_msg}")
+    print(f"   • 1. AI 模型狀態 ({new_provider.provider_name.upper()}): {llm_badge} {llm_msg}")
 
     backend_ok, backend_msg = backend_client.test_connection()
     be_badge = "🟢" if backend_ok else "🟡"
-    print(f"   • BRVA 後端連線: {be_badge} {backend_msg}")
+    print(f"   • 2. BRVA API 伺服器: {be_badge} {backend_msg}")
 
-    agent = AeroAgent(llm_provider=new_provider)
-    print("\n✅ AeroAgent 初始化完成！")
+    print(f"   • 3. 飛官身分狀態: 🟡 訪客模式 (未連結飛官帳號，但公開航網、氣象、排行榜、規章等功能均可 100% 正常使用)")
+
+    agent = BRVAAgent(llm_provider=new_provider)
+    print("\n✅ BRVA Agent 初始化完成！")
     print("=" * 70)
     return agent
 
 
-def print_status_summary(agent: AeroAgent):
-    """Displays active agent configuration and health."""
+def print_status_summary(agent: BRVAAgent):
+    """Displays active agent configuration and 3-tier health check."""
     provider = getattr(agent, "llm", None)
     p_name = provider.provider_name.upper() if provider else "UNKNOWN"
     m_name = getattr(provider, "model_name", "default")
     
     print("\n" + "=" * 60)
-    print("📊 【AeroAgent 當前運行狀態】")
+    print("📊 【BRVA Agent 當前運行狀態】")
     print(f"• LLM 供應商   : {p_name} ({m_name})")
     print(f"• Gemini Key   : {mask_secret(config.GEMINI_API_KEY)}")
     print(f"• BRVA API URL : {config.BRVA_API_BASE_URL}")
-    print(f"• BRVA Key     : {mask_secret(config.BRVA_AGENT_API_KEY)}")
     if provider:
         ok, msg = provider.test_connection()
-        print(f"• LLM 連線檢驗 : {'🟢' if ok else '🔴'} {msg}")
+        print(f"• 1. LLM 連線檢驗     : {'🟢' if ok else '🔴'} {msg}")
     be_ok, be_msg = backend_client.test_connection()
-    print(f"• 後端連線檢驗 : {'🟢' if be_ok else '🟡'} {be_msg}")
+    print(f"• 2. 後端伺服器檢驗   : {'🟢' if be_ok else '🟡'} {be_msg}")
+    print(f"• 3. 飛官身分狀態     : 🟡 訪客模式 (公開航線/氣象/規章等全功能 100% 可用)")
     print("=" * 60)
 
 
 def main():
     print("=" * 70)
-    print("✈️  EVA Air Virtual (BRVA) · AeroAgent 智慧簽派與遙測考核系統")
+    print("✈️  EVA Air Virtual (BRVA) · BRVA Agent 智慧簽派與遙測考核系統")
     print("    [指定作業二：可執行 Agent + Tool / ReAct 互動展示模式]")
     print("=" * 70)
 
     # 1. Startup Configuration & Model Selection Prompt
     is_interactive = sys.stdin.isatty()
-    agent: Optional[AeroAgent] = None
+    agent: Optional[BRVAAgent] = None
 
     if is_interactive:
         display_current_config_banner()
@@ -218,7 +203,7 @@ def main():
             choice = input("\n👉 請選擇 [1/2] (直接按 Enter 進入選型設定): ").strip()
             if choice == "2":
                 print("⚡ 使用當前配置快速啟動...")
-                agent = AeroAgent()
+                agent = BRVAAgent()
             else:
                 agent = prompt_configuration_wizard()
         except (KeyboardInterrupt, EOFError):
@@ -226,7 +211,7 @@ def main():
             return
     else:
         # Non-interactive / Headless / Piped execution
-        agent = AeroAgent()
+        agent = BRVAAgent()
 
     # 2. Ready & Guide
     print("\n💡 系統已就緒，您可以輸入指令測試，例如：")
@@ -246,7 +231,7 @@ def main():
             if not user_input:
                 continue
             if user_input.lower() in ("exit", "quit", "q"):
-                print("👋 感謝使用 AeroAgent，祝您飛行愉快！")
+                print("👋 感謝使用 BRVA Agent，祝您飛行愉快！Happy Landings！")
                 break
             if user_input.lower() in ("/config", "/model", "/settings", "config", "model"):
                 agent = prompt_configuration_wizard()

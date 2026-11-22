@@ -26,7 +26,7 @@ from src.tools import (
 )
 from src.llm import BaseLLMProvider, get_llm_provider
 
-SYSTEM_PROMPT = """你是由長榮航空虛擬航空 (EVA Air Virtual / BRVA) 打造的專業 AI 飛行簽派副駕駛與考核助理 (AeroAgent)。
+SYSTEM_PROMPT = """你是由長榮航空虛擬航空 (EVA Air Virtual / BRVA) 打造的專業 AI 飛行簽派副駕駛與考核助理 (BRVA Agent)。
 你的核心職責：
 1. 協助機師查詢長榮/立榮航網班次、即時航空氣象 (METAR)、計算跑道側風與逆風分量、評估適航風險。
 2. 檢索與解答長榮虛擬航空飛行標準作業程序 (SOP)、LIVE 機隊營運規範及術科實作檢定考核標準規章 (RAG 知識庫)。
@@ -38,7 +38,7 @@ SYSTEM_PROMPT = """你是由長榮航空虛擬航空 (EVA Air Virtual / BRVA) �
 請保持專業、幹練的民航飛行通聯語氣，使用台灣民航標準用語（如：進場、塔台、側風分量、平飄、接地）。
 每次需要外部數據或官方規章時，主動呼叫相關工具。"""
 
-class AeroAgent:
+class BRVAAgent:
     def __init__(
         self,
         memory: Optional[AgentMemory] = None,
@@ -71,7 +71,7 @@ class AeroAgent:
                     f"你剛才呼叫執行的航電工具：{tool_name}\n"
                     f"目前的通聯狀態：CrewCenter 簽派中心資料庫連線逾時或伺服器暫時離線（CREWCENTER_OFFLINE）。\n\n"
                     f"【副駕駛回覆指引】：\n"
-                    f"1. 請發揮長榮虛擬航空 AI 簽派副駕駛 (AeroAgent) 的專業與貼心風格，向教官/機長生動回報此狀況。\n"
+                    f"1. 請發揮長榮虛擬航空 AI 簽派副駕駛 (BRVA Agent) 的專業與貼心風格，向教官/機長生動回報此狀況。\n"
                     f"2. 語氣自然、專業有禮貌，切忌死板冷冰冰的格式化報錯（例如可以提及航電資料鏈路 ACARS 暫時訊號不佳、簽派中心主機正在維修、喝杯熱咖啡稍後再呼叫等航空情境）。\n"
                     f"3. 貼心告知：本機的【即時機場 METAR 氣象】、【跑道側風分量計算】、【長榮飛行規章 SOP】以及【黑盒子時序遙測審核】依然正常可用，詢問機長是否先進行其他飛行準備。\n"
                     f"4. 篇幅請控制在 100~150 字以內，精練且具座艙真實感。"
@@ -116,6 +116,64 @@ class AeroAgent:
         """
         user_text = user_input.strip()
         self.memory.add_message("user", user_text)
+
+        # -------------------------------------------------------------
+        # 0. In-Chat Pilot Linking & Demo Pilot Switch
+        # -------------------------------------------------------------
+        if any(w in user_text for w in ["切換測試飛官", "體驗飛官", "一鍵登入", "登入測試飛官", "載入測試飛官", "demo pilot"]):
+            if user_context is not None:
+                user_context.is_authenticated = True
+                user_context.user_id = "user_eva_888"
+                user_context.callsign = "EVA001"
+                user_context.username = "Captain EVA"
+                user_context.rank_name = "Senior Captain"
+                user_context.points = 2500.0
+                user_context.flight_time_hours = 480.5
+                user_context.delegation_token = "mock_pilot_token_eva001"
+                user_context.scopes = ["flight:read", "flight:dispatch", "pilot:profile", "store:read"]
+            resp = (
+                "👨‍✈️ **已為您一鍵切換至測試飛官身分！**\n\n"
+                "• 呼號：`EVA001`\n"
+                "• 階級：`Senior Captain`\n"
+                "• 點數：`2,500 pts`\n"
+                "• 累計飛行時數：`480.5 h`\n"
+                "• 狀態：🟢 已通過身分委託鑑權\n\n"
+                "現在您可以自由測試『查我的點數』、『簽派放行』、『查看個人背包』等個人化功能！"
+            )
+            self.memory.add_message("assistant", resp)
+            return resp
+
+        import re
+        link_match = re.search(r"(?:連結飛官|登入飛官|綁定飛官|token\s*[:：])\s*([a-zA-Z0-9_\-\.]+)", user_text, re.IGNORECASE)
+        if link_match:
+            raw_token = link_match.group(1).strip()
+            from src.client import backend_client
+            val_res = backend_client.verify_token(raw_token)
+            if val_res and val_res.get("valid") and val_res.get("user"):
+                u = val_res["user"]
+                if user_context is not None:
+                    user_context.is_authenticated = True
+                    user_context.user_id = str(u.get("userId"))
+                    user_context.callsign = u.get("callsign")
+                    user_context.username = u.get("username")
+                    user_context.rank_name = u.get("rankName")
+                    user_context.points = float(u.get("points") or 0)
+                    user_context.flight_time_hours = float(u.get("flightTimeHours") or 0)
+                    user_context.delegation_token = raw_token
+                    user_context.scopes = u.get("scopes") or []
+                resp = (
+                    f"👨‍✈️ **飛官身分連結成功！歡迎登機，{u.get('callsign')} 機長。**\n\n"
+                    f"• 階級：`{u.get('rankName')}`\n"
+                    f"• 點數餘額：`{float(u.get('points') or 0):,.0f} pts`\n"
+                    f"• 總飛行時數：`{float(u.get('flightTimeHours') or 0):,.1f} h`\n\n"
+                    f"BRVA Agent 隨時聽候您的指示！"
+                )
+                self.memory.add_message("assistant", resp)
+                return resp
+            else:
+                resp = "⚠️ 抱歉長官，此授權碼無效、已過期或無法連線驗證。請確認後再試，或在側邊欄點選【⚡ 一鍵體驗飛官身分】直接進行測試！"
+                self.memory.add_message("assistant", resp)
+                return resp
 
         # -------------------------------------------------------------
         # 1. Human-in-the-Loop (HITL) Pending Dispatch Check
@@ -650,3 +708,7 @@ class AeroAgent:
         )
         self.memory.add_message("assistant", final_resp)
         return final_resp
+
+
+# Backward-compatible alias for existing tests and scripts
+AeroAgent = BRVAAgent

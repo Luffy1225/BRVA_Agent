@@ -58,18 +58,16 @@ class TestCliConfigAndWizard(unittest.TestCase):
     def test_prompt_configuration_wizard_gemini(self, mock_input):
         # Simulated user inputs:
         # 1: Choose Gemini [1]
-        # 2: Gemini API Key ["AIzaSyTestKey1234567890"]
+        # 2: Gemini API Key
         # 3: Choose Gemini Model [1] -> gemini-3.5-flash-lite
         # 4: BRVA Base URL ["https://api.eva-virtual.com"]
-        # 5: BRVA Agent Key ["brva_sk_live_testkey"]
-        # 6: Save to .env [n] (do not overwrite during test)
+        # 5: Save to .env [n] (do not overwrite during test)
         mock_input.side_effect = [
             "1",                                  # Provider: Gemini
             "mock_gemini_api_key_sample_12345",   # Gemini API Key
             "1",                                  # Model: gemini-3.5-flash-lite
-            "https://api.eva-virtual.com", # Base URL
-            "brva_sk_live_testkey",        # Agent Key
-            "n"                            # Save to .env: No
+            "https://api.eva-virtual.com",        # Base URL
+            "n"                                   # Save to .env: No
         ]
 
         agent = prompt_configuration_wizard()
@@ -78,7 +76,6 @@ class TestCliConfigAndWizard(unittest.TestCase):
         self.assertEqual(config.GEMINI_API_KEY, "mock_gemini_api_key_sample_12345")
         self.assertEqual(config.GEMINI_MODEL, "gemini-3.5-flash-lite")
         self.assertEqual(config.BRVA_API_BASE_URL, "https://api.eva-virtual.com")
-        self.assertEqual(config.BRVA_AGENT_API_KEY, "brva_sk_live_testkey")
 
     @patch("builtins.input")
     def test_prompt_configuration_wizard_ollama(self, mock_input):
@@ -87,14 +84,12 @@ class TestCliConfigAndWizard(unittest.TestCase):
         # 2: Ollama Base URL ["http://192.168.1.100:11434"]
         # 3: Choose Ollama Model [2] -> qwen2.5
         # 4: BRVA Base URL [""] (keep default)
-        # 5: BRVA Agent Key [""] (keep default)
-        # 6: Save to .env [n]
+        # 5: Save to .env [n]
         mock_input.side_effect = [
             "2",                           # Provider: Ollama
             "http://192.168.1.100:11434",  # Ollama URL
             "2",                           # Model: qwen2.5
             "",                            # Base URL: keep
-            "",                            # Agent Key: keep
             "n"                            # Save to .env: No
         ]
 
@@ -109,13 +104,26 @@ class TestCliConfigAndWizard(unittest.TestCase):
         mock_input.side_effect = [
             "3",                           # Provider: Offline
             "",                            # Base URL: keep
-            "",                            # Agent Key: keep
             "n"                            # Save to .env: No
         ]
 
         agent = prompt_configuration_wizard()
         self.assertIsNotNone(agent)
         self.assertEqual(config.LLM_PROVIDER, "offline")
+
+    def test_in_chat_pilot_linking(self):
+        from src.agent import BRVAAgent
+        from src.context import UserContext
+        agent = BRVAAgent()
+        ctx = UserContext()
+        self.assertFalse(ctx.is_authenticated)
+
+        # 1. Test Demo Pilot Shortcut
+        resp = agent.run("請幫我切換測試飛官", user_context=ctx, verbose=False)
+        self.assertIn("EVA001", resp)
+        self.assertTrue(ctx.is_authenticated)
+        self.assertEqual(ctx.callsign, "EVA001")
+        self.assertEqual(ctx.points, 2500.0)
 
 
 if __name__ == "__main__":

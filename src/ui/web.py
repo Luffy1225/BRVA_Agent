@@ -1,5 +1,5 @@
 import streamlit as st
-from src.agent import AeroAgent
+from src.agent import BRVAAgent, AeroAgent
 from src.context import UserContext
 from src.client import backend_client
 from src.config import (
@@ -13,17 +13,17 @@ from src.config import (
 from src.llm import get_llm_provider
 
 st.set_page_config(
-    page_title="AeroAgent · BRVA 智慧簽派與遙測考核系統",
+    page_title="BRVA Agent · 智慧簽派與遙測考核系統",
     page_icon="✈️",
     layout="wide"
 )
 
-st.title("✈️ AeroAgent：BRVA 智慧簽派與飛行實操考核系統")
-st.caption("長榮虛擬航空 (EVA Air Virtual) · 基於多工具協作與身分委託授權之專業領域 AI Agent")
+st.title("✈️ BRVA Agent：智慧飛行簽派與遙測考核系統")
+st.caption("長榮虛擬航空 (EVA Air Virtual, BRVA) · 基於多工具協作與身分委託授權之專業領域 AI Agent")
 
 # Initialize Agent & UserContext in session state
 if "agent" not in st.session_state:
-    st.session_state.agent = AeroAgent()
+    st.session_state.agent = BRVAAgent()
 
 if "user_context" not in st.session_state:
     st.session_state.user_context = UserContext()
@@ -32,7 +32,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
-            "content": "機長您好！我是 BRVA 智慧飛行簽派與考核副駕駛。請問今天需要為您查詢航線、解析目的地天氣、查看排行榜/行事曆，還是審查飛行黑盒子紀錄？"
+            "content": "機長您好！我是長榮虛擬航空官方 AI 簽派副駕駛 BRVA Agent。請問今天需要為您查詢航線、解析目的地天氣、查看排行榜/行事曆，還是審查飛行黑盒子紀錄？"
         }
     ]
 
@@ -124,21 +124,14 @@ with st.sidebar:
             else:
                 ollama_model_val = selected_o_model
 
-        # Backend Connection
-        st.markdown("---")
-        brva_url_val = st.text_input(
-            "🌐 BRVA API 伺服器網址",
-            value=config.BRVA_API_BASE_URL,
-            help="線上正式站: https://api.eva-virtual.com | 本機開發: http://localhost:3000 (結尾有無 /api 皆自動相容)",
-            key="cfg_brva_url_input"
-        )
-        brva_key_val = st.text_input(
-            "🛡️ BRVA Agent 機器金鑰 (x-agent-key)",
-            value=config.BRVA_AGENT_API_KEY,
-            type="password",
-            help="伺服器端授權金鑰 (x-agent-key)",
-            key="cfg_brva_key_input"
-        )
+        # Backend Connection (Advanced / Collapsed by default)
+        with st.expander("🛠️ 進階伺服器連線設定 (非必要免填)", expanded=False):
+            brva_url_val = st.text_input(
+                "🌐 BRVA API 伺服器網址",
+                value=config.BRVA_API_BASE_URL,
+                help="線上正式站: https://api.eva-virtual.com | 本機開發: http://localhost:3000 (結尾有無 /api 皆自動相容)",
+                key="cfg_brva_url_input"
+            )
 
         save_to_env = st.checkbox("💾 同步儲存至 .env 檔案", value=True, key="cfg_save_env_checkbox")
 
@@ -156,7 +149,6 @@ with st.sidebar:
                 "OLLAMA_BASE_URL": ollama_url_val.strip(),
                 "OLLAMA_MODEL": ollama_model_val.strip(),
                 "BRVA_API_BASE_URL": brva_url_val.strip(),
-                "BRVA_AGENT_API_KEY": brva_key_val.strip(),
             }
             update_runtime_config(updates, persist_to_env=save_to_env)
             
@@ -168,10 +160,9 @@ with st.sidebar:
                 ollama_base_url=ollama_url_val.strip(),
                 ollama_model=ollama_model_val.strip(),
             )
-            st.session_state.agent = AeroAgent(llm_provider=new_prov)
+            st.session_state.agent = BRVAAgent(llm_provider=new_prov)
             backend_client.configure(
-                base_url=brva_url_val.strip(),
-                api_key=brva_key_val.strip()
+                base_url=brva_url_val.strip()
             )
             st.success("✅ 設定已成功套用並重啟！")
             st.rerun()
@@ -188,40 +179,68 @@ with st.sidebar:
                 p_ok, p_msg = temp_prov.test_connection()
                 
                 from src.client import BackendClient
-                temp_client = BackendClient(base_url=brva_url_val.strip(), api_key=brva_key_val.strip())
+                temp_client = BackendClient(base_url=brva_url_val.strip())
                 b_ok, b_msg = temp_client.test_connection()
 
-            st.markdown("##### 🩺 連線檢驗報告")
+            st.markdown("##### 🩺 三合一連線檢驗報告")
             if p_ok:
-                st.success(f"🟢 **AI 模型 ({temp_prov.provider_name.upper()})**\n\n{p_msg}")
+                st.success(f"🟢 **1. AI 模型 ({temp_prov.provider_name.upper()})**\n\n{p_msg}")
             else:
-                st.error(f"🔴 **AI 模型 ({temp_prov.provider_name.upper()})**\n\n{p_msg}")
+                st.error(f"🔴 **1. AI 模型 ({temp_prov.provider_name.upper()})**\n\n{p_msg}")
 
             if b_ok:
-                st.success(f"🟢 **BRVA 後端**\n\n{b_msg}")
+                st.success(f"🟢 **2. BRVA API 伺服器**\n\n{b_msg}")
             else:
-                st.warning(f"🟡 **BRVA 後端**\n\n{b_msg}")
+                st.warning(f"🟡 **2. BRVA API 伺服器**\n\n{b_msg}")
+
+            curr_ctx = st.session_state.user_context
+            if curr_ctx and curr_ctx.is_authenticated:
+                st.success(
+                    f"🟢 **3. 飛官身分 (CrewCenter)**\n\n"
+                    f"成功讀取到飛官資訊：`{curr_ctx.callsign}` 機長\n\n"
+                    f"• 階級：`{curr_ctx.rank_name}` ｜ 點數：`{curr_ctx.points:,.0f} pts` ｜ 總時數：`{curr_ctx.flight_time_hours:,.1f} h`"
+                )
+            else:
+                st.info(
+                    "🟡 **3. 飛官身分 (CrewCenter)**\n\n"
+                    "目前為 **訪客模式 (未連結飛官帳號)**。\n\n"
+                    "💡 **提示**：未連結帳號也能 **100% 正常使用** 公開航網班次、即時氣象 (METAR)、側風分量計算、飛行員排行榜與民航規章 SOP！"
+                )
 
     st.divider()
 
-    st.header("🔑 飛官帳號連結 (CrewCenter Link)")
+    st.header("👨‍✈️ 飛官帳號連結 (CrewCenter Link)")
     
     # Mode B: Token input linking
     ctx = st.session_state.user_context
     if ctx.is_authenticated:
         st.success(
             f"🟢 **已連結飛官：{ctx.callsign}**\n\n"
-            f"• 階級：`{ctx.rank_name}`\n\n"
-            f"• 點數：`{ctx.points:,.0f} pts`\n\n"
+            f"• 階級：`{ctx.rank_name}` ｜ 點數：`{ctx.points:,.0f} pts`\n\n"
             f"• 總飛行時數：`{ctx.flight_time_hours:,.1f} h`"
         )
-        if st.button("🚪 解除連結 (Unlink)", use_container_width=True):
+        if st.button("🚪 切換回訪客模式 (Unlink)", use_container_width=True):
             st.session_state.user_context = UserContext()
             st.info("已解除帳號連結，恢復訪客模式。")
             st.rerun()
     else:
-        st.warning("🔴 **未連結飛官帳號 (訪客模式)**\n\n訪客可查詢公開航網、氣象、排行榜與行事曆；如需簽派或查詢個人時數點數背包，請貼入授權碼。")
-        token_input = st.text_input("CrewCenter 授權碼 / Token", type="password", key="pilot_token_box", placeholder="貼上 CrewCenter 授權碼...")
+        st.caption("👤 目前為訪客模式 (可查公開航網、氣象、規章與排行榜)")
+        if st.button("⚡ 一鍵體驗飛官身分 (EVA001 測試帳號)", use_container_width=True, type="secondary"):
+            st.session_state.user_context = UserContext(
+                is_authenticated=True,
+                user_id="user_eva_888",
+                callsign="EVA001",
+                username="Captain EVA",
+                rank_name="Senior Captain",
+                points=2500.0,
+                flight_time_hours=480.5,
+                delegation_token="mock_pilot_token_eva001",
+                scopes=["flight:read", "flight:dispatch", "pilot:profile", "store:read"]
+            )
+            st.success("✅ 已一鍵切換至 EVA001 測試飛官！")
+            st.rerun()
+
+        token_input = st.text_input("🔑 CrewCenter 授權碼 / Token (選填)", type="password", key="pilot_token_box", placeholder="貼上 CrewCenter 授權碼...")
         
         col1, col2 = st.columns([1, 1])
         with col1:
@@ -251,7 +270,7 @@ with st.sidebar:
                         else:
                             st.error("❌ 授權碼無效或已過期，請確認後重試。")
         with col2:
-            st.link_button("🌐 前往 CrewCenter", "https://crewcenter.eva-virtual.com", use_container_width=True)
+            st.link_button("🌐 取得授權碼", "https://crewcenter.eva-virtual.com", use_container_width=True)
 
     st.divider()
 
@@ -300,16 +319,6 @@ with st.sidebar:
         if st.button("💰 查詢點數餘額與個人檔案", use_container_width=True):
             st.session_state.prompt_input = "幫我查我的點數與個人檔案"
 
-    st.divider()
-    st.markdown("### 📋 系統狀態")
-    provider_name = getattr(st.session_state.agent.llm, "provider_name", "unknown").upper()
-    model_name = getattr(st.session_state.agent.llm, "model_name", "default")
-    st.markdown(f"• **LLM 核心選型**：`{provider_name}` (`{model_name}`)")
-    st.markdown(f"• **Gemini Key**：`{mask_secret(config.GEMINI_API_KEY)}`")
-    st.markdown(f"• **BRVA 伺服器**：`{config.BRVA_API_BASE_URL}`")
-    st.markdown(f"• **BRVA Agent Key**：`{mask_secret(config.BRVA_AGENT_API_KEY)}`")
-    st.info("✅ ReAct 決策引擎：就緒\n\n✅ 身分委託授權鏈：就緒\n\n✅ 14 大航空與 CrewCenter 工具鏈：就緒\n\n✅ 官方規章與 SOP 知識庫：就緒")
-
 # Main Page Notice if Gemini is selected but key is missing
 if config.LLM_PROVIDER == "gemini" and (not config.GEMINI_API_KEY or "your_gemini" in config.GEMINI_API_KEY):
     st.warning("⚠️ **尚未設定 Google Gemini API Key**：目前模型選型為 Google Gemini，請於左側側邊欄「⚙️ 參數設定與模型選型」輸入您的 API Key，或切換為 Offline 離線免金鑰模式！")
@@ -334,7 +343,7 @@ if user_prompt:
 
     # Agent response
     with st.chat_message("assistant"):
-        with st.spinner("🤖 AeroAgent 正在規劃工具鏈與分析中..."):
+        with st.spinner("🤖 BRVA Agent 正在規劃工具鏈與分析中..."):
             response = st.session_state.agent.run(
                 user_prompt,
                 user_context=st.session_state.user_context,
