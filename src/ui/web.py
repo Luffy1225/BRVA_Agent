@@ -44,6 +44,43 @@ if "messages" not in st.session_state:
         }
     ]
 
+# Pre-initialize session_state keys for configuration widgets
+if "top_api_server_input" not in st.session_state:
+    st.session_state.top_api_server_input = config.BRVA_API_BASE_URL
+
+if "top_crewcenter_token_input" not in st.session_state:
+    st.session_state.top_crewcenter_token_input = config.OFFICIAL_TEST_TOKEN or os.getenv("OFFICIAL_TEST_TOKEN", "")
+
+if "top_llm_key_input" not in st.session_state:
+    st.session_state.top_llm_key_input = config.GEMINI_API_KEY
+
+
+def on_import_secret_clicked():
+    """Callback executed before widgets instantiate, safely updating session_state."""
+    loaded = load_secret_file()
+    if loaded:
+        if "BRVA_API_BASE_URL" in loaded:
+            st.session_state.top_api_server_input = loaded["BRVA_API_BASE_URL"]
+        if "OFFICIAL_TEST_TOKEN" in loaded:
+            st.session_state.top_crewcenter_token_input = loaded["OFFICIAL_TEST_TOKEN"]
+        if "GEMINI_API_KEY" in loaded:
+            st.session_state.top_llm_key_input = loaded["GEMINI_API_KEY"]
+
+        update_runtime_config(loaded, persist_to_env=False, persist_to_secret=False)
+        backend_client.configure(base_url=config.BRVA_API_BASE_URL)
+        new_prov = get_llm_provider(
+            provider_type=config.LLM_PROVIDER,
+            gemini_api_key=config.GEMINI_API_KEY,
+            gemini_model=config.GEMINI_MODEL,
+            ollama_base_url=config.OLLAMA_BASE_URL,
+            ollama_model=config.OLLAMA_MODEL,
+        )
+        st.session_state.agent = BRVAAgent(llm_provider=new_prov)
+        st.session_state["_secret_import_msg"] = ("success", "✅ 已成功從 `sercet.txt` 載入並套用參數！")
+    else:
+        st.session_state["_secret_import_msg"] = ("warning", "⚠️ 未在專案根目錄找到 `sercet.txt` 或 `secret.txt`。")
+
+
 # Sidebar
 with st.sidebar:
     st.header("🔐 核心連線金鑰與參數 (Secrets & API)")
@@ -51,102 +88,48 @@ with st.sidebar:
 
     top_api_server = st.text_input(
         "🌐 API 伺服器網址 (API Server)",
-        value=config.BRVA_API_BASE_URL,
-        help="BRVA 後端 API 伺服器端點 (例如 https://api.eva-virtual.com 或 http://localhost:3000)",
-        key="top_api_server_input"
+        key="top_api_server_input",
+        help="BRVA 後端 API 伺服器端點 (例如 https://api.eva-virtual.com 或 http://localhost:3000)"
     )
 
     top_crewcenter_token = st.text_input(
         "🔑 CrewCenter 授權碼 / Token",
-        value=config.OFFICIAL_TEST_TOKEN or os.getenv("OFFICIAL_TEST_TOKEN", ""),
         type="password",
-        help="CrewCenter 飛官委託授權碼 (由 sercet.txt 自動載入，亦可在此貼入個人授權碼)",
-        key="top_crewcenter_token_input"
+        key="top_crewcenter_token_input",
+        help="CrewCenter 飛官委託授權碼 (由 sercet.txt 自動載入，亦可在此貼入個人授權碼)"
     )
 
     top_llm_key = st.text_input(
         "🧠 LLM API 金鑰 (Gemini Key)",
-        value=config.GEMINI_API_KEY,
         type="password",
-        help="Google Gemini 模型 API 金鑰 (由 sercet.txt 自動載入或在此設定)",
-        key="top_llm_key_input"
+        key="top_llm_key_input",
+        help="Google Gemini 模型 API 金鑰 (由 sercet.txt 自動載入或在此設定)"
     )
 
     col_import, col_test = st.columns(2)
     with col_import:
-        import_clicked = st.button("📥 匯入 sercet", use_container_width=True, key="cfg_import_btn", help="從專案根目錄的 sercet.txt 自動載入並套用參數")
+        st.button(
+            "📥 匯入 sercet",
+            on_click=on_import_secret_clicked,
+            use_container_width=True,
+            key="cfg_import_btn",
+            help="從專案根目錄的 sercet.txt 自動載入並套用參數"
+        )
     with col_test:
-        test_clicked = st.button("🔍 連線測試", type="primary", use_container_width=True, key="cfg_test_btn", help="依序測試 API Server、CrewCenter 飛官身分與 LLM")
+        test_clicked = st.button(
+            "🔍 連線測試",
+            type="primary",
+            use_container_width=True,
+            key="cfg_test_btn",
+            help="依序測試 API Server、CrewCenter 飛官身分與 LLM"
+        )
 
-    uploaded_secret = st.file_uploader(
-        "📂 選擇 sercet.txt 檔案匯入參數",
-        type=["txt", "env"],
-        key="sercet_file_picker",
-        help="選取本機 sercet.txt 或 secret.txt，系統將自動解析 API Server、CrewCenter 授權碼與 LLM 金鑰"
-    )
-
-    # 處理檔案選取上傳匯入
-    if uploaded_secret is not None:
-        file_bytes = uploaded_secret.getvalue()
-        file_str = file_bytes.decode("utf-8", errors="ignore")
-        file_sig = f"{uploaded_secret.name}_{len(file_bytes)}"
-        if st.session_state.get("_last_uploaded_sig") != file_sig:
-            st.session_state._last_uploaded_sig = file_sig
-            parsed = parse_secret_string(file_str)
-            if parsed:
-                updates = {}
-                if "BRVA_API_BASE_URL" in parsed:
-                    st.session_state.top_api_server_input = parsed["BRVA_API_BASE_URL"]
-                    updates["BRVA_API_BASE_URL"] = parsed["BRVA_API_BASE_URL"]
-                if "OFFICIAL_TEST_TOKEN" in parsed:
-                    st.session_state.top_crewcenter_token_input = parsed["OFFICIAL_TEST_TOKEN"]
-                    updates["OFFICIAL_TEST_TOKEN"] = parsed["OFFICIAL_TEST_TOKEN"]
-                if "GEMINI_API_KEY" in parsed:
-                    st.session_state.top_llm_key_input = parsed["GEMINI_API_KEY"]
-                    updates["GEMINI_API_KEY"] = parsed["GEMINI_API_KEY"]
-                if updates:
-                    update_runtime_config(updates, persist_to_env=False, persist_to_secret=False)
-                    backend_client.configure(base_url=config.BRVA_API_BASE_URL)
-                    new_prov = get_llm_provider(
-                        provider_type=config.LLM_PROVIDER,
-                        gemini_api_key=config.GEMINI_API_KEY,
-                        gemini_model=config.GEMINI_MODEL,
-                        ollama_base_url=config.OLLAMA_BASE_URL,
-                        ollama_model=config.OLLAMA_MODEL,
-                    )
-                    st.session_state.agent = BRVAAgent(llm_provider=new_prov)
-                st.success(f"✅ 已成功從檔案 `{uploaded_secret.name}` 匯入參數！")
-                st.rerun()
-
-    # 處理點擊「📥 匯入 sercet」按鈕
-    if import_clicked:
-        loaded = load_secret_file()
-        if loaded:
-            updates = {}
-            if "BRVA_API_BASE_URL" in loaded:
-                st.session_state.top_api_server_input = loaded["BRVA_API_BASE_URL"]
-                updates["BRVA_API_BASE_URL"] = loaded["BRVA_API_BASE_URL"]
-            if "OFFICIAL_TEST_TOKEN" in loaded:
-                st.session_state.top_crewcenter_token_input = loaded["OFFICIAL_TEST_TOKEN"]
-                updates["OFFICIAL_TEST_TOKEN"] = loaded["OFFICIAL_TEST_TOKEN"]
-            if "GEMINI_API_KEY" in loaded:
-                st.session_state.top_llm_key_input = loaded["GEMINI_API_KEY"]
-                updates["GEMINI_API_KEY"] = loaded["GEMINI_API_KEY"]
-            if updates:
-                update_runtime_config(updates, persist_to_env=False, persist_to_secret=False)
-                backend_client.configure(base_url=config.BRVA_API_BASE_URL)
-                new_prov = get_llm_provider(
-                    provider_type=config.LLM_PROVIDER,
-                    gemini_api_key=config.GEMINI_API_KEY,
-                    gemini_model=config.GEMINI_MODEL,
-                    ollama_base_url=config.OLLAMA_BASE_URL,
-                    ollama_model=config.OLLAMA_MODEL,
-                )
-                st.session_state.agent = BRVAAgent(llm_provider=new_prov)
-            st.success("✅ 已成功從專案 `sercet.txt` 載入並套用參數！")
-            st.rerun()
-        else:
-            st.warning("⚠️ 未在專案目錄找到 `sercet.txt` 或 `secret.txt`，請使用上方的檔案選擇器選取檔案。")
+    if "_secret_import_msg" in st.session_state:
+        msg_type, msg_text = st.session_state.pop("_secret_import_msg")
+        if msg_type == "success":
+            st.success(msg_text)
+        elif msg_type == "warning":
+            st.warning(msg_text)
 
     with st.expander("⚙️ 進階模型選型 (LLM Model Selection)", expanded=False):
         provider_options = ["gemini", "ollama", "offline", "auto"]
