@@ -79,11 +79,13 @@ class BRVAAgent:
         if self._verbose:
             print(f"[🔍 Tool Call] -> {call_repr}")
 
-    def _add_trace_observation(self, summary: str, data: Optional[Any] = None):
+    def _add_trace_observation(self, summary: str, data: Optional[Any] = None, result: Optional[Any] = None):
+        res_payload = result if result is not None else data
         step = {
             "type": "observation",
             "title": "工具執行觀察",
-            "content": summary
+            "content": summary,
+            "result": res_payload
         }
         self.current_trace.append(step)
         if self._verbose:
