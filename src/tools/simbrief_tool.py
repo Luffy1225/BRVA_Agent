@@ -59,6 +59,7 @@ def generate_simbrief_dispatch(
 
     # 2. Authenticated Flight Dispatch via Backend API
     if user_context is not None and user_context.is_authenticated and user_context.delegation_token:
+        # Step A: Attempt SimBrief OFP generation (if user has linked SimBrief)
         backend_res = backend_client.post(
             "/api/dispatch/simbrief",
             json_data={
@@ -74,37 +75,32 @@ def generate_simbrief_dispatch(
             user_token=user_context.delegation_token
         )
 
-        # Handle SimBrief Not Linked
-        is_simbrief_unlinked = False
-        if backend_res:
-            if backend_res.get("simbriefLinked") is False:
-                is_simbrief_unlinked = True
-            elif backend_res.get("_status_code") == 400 and "SimBrief account not linked" in str(backend_res.get("error", "")):
-                is_simbrief_unlinked = True
-
-        if is_simbrief_unlinked:
-            unlinked_msg = (
-                f"長官，目前沒有登錄 SimBrief，因此我目前沒辦法幫您生成 SimBrief 計畫，"
-                f"不過 CrewCenter 內部已經為您完成 Dispatch 了！\n"
-                f"• 執飛航班：{clean_flt}\n"
-                f"• 起訖場站：{clean_dep} ➔ {clean_arr}\n"
-                f"• 機型指派：{clean_type}\n"
-                f"• 執飛飛官：{user_context.callsign or 'PILOT'}\n"
-                f"您可隨時至 CrewCenter 派遣中心 (Dispatch Center) 查看或領取此航班起飛！"
-            )
-            return {
-                "status": "SUCCESS_INTERNAL_DISPATCH",
-                "flight_number": clean_flt,
-                "dep_icao": clean_dep,
-                "arr_icao": clean_arr,
-                "aircraft_type": clean_type,
-                "simbrief_linked": False,
-                "summary": unlinked_msg,
-                "summary_text": unlinked_msg,
-            }
-
+        simbrief_linked = False
+        ofp_data = None
         if backend_res and (backend_res.get("success") or "general" in backend_res):
+            simbrief_linked = True
             ofp_data = backend_res.get("data") or backend_res
+
+        # Step B: Register Active Dispatch in CrewCenter (/api/dispatch/active)
+        # This commits the active flight into the database so CrewCenter Dashboard & Dispatch Center show it!
+        active_payload = {
+            "isLive": True,
+            "departureICAO": clean_dep,
+            "arrivalICAO": clean_arr,
+            "flightNumber": clean_flt,
+            "aircraft": clean_type,
+            "simbriefData": ofp_data if simbrief_linked else None
+        }
+        active_res = backend_client.post(
+            "/api/dispatch/active",
+            json_data=active_payload,
+            user_token=user_context.delegation_token
+        )
+
+        pilot_display = user_context.callsign if (user_context.callsign and user_context.callsign != "N/A") else (user_context.username or "AgenticTesting")
+
+        # Case 1: SimBrief OFP plan was generated successfully
+        if simbrief_linked and ofp_data:
             general = ofp_data.get("general") or {}
             fuel = ofp_data.get("fuel") or {}
             times = ofp_data.get("times") or {}
@@ -126,13 +122,14 @@ def generate_simbrief_dispatch(
                 f"• 航班編號：{clean_flt}\n"
                 f"• 航線起訖：{clean_dep} 🛫 ➡️ {clean_arr} 🛬\n"
                 f"• 執飛機型：{clean_type} 客機\n"
+                f"• 執飛飛官：{pilot_display}\n"
                 f"• 航路規劃 (Route)：{route_str}\n"
                 f"• 巡航高度：{cruise_alt} ｜ 預估航程時間：{est_time_str}\n"
                 f"• 計畫燃油 (Block Fuel)：{block_fuel:,} kg\n"
                 f"• 法定備降場 (Alternate)：{alternate}\n\n"
                 f"📡 【簽派中心狀態 (Active Dispatch)】：\n"
                 f"• 放行狀態：✅ 已核准放行 (ACTIVE DISPATCH)\n"
-                f"• 系統已將飛行計畫同步登錄至 BRVA 簽派中心，機長可直接載入機載航電執飛！"
+                f"• 系統已將飛行計畫同步登錄至 BRVA 簽派中心，長官重整 CrewCenter 頁面即可看到 Active Flight，可直接載入機載航電執飛！"
             )
             return {
                 "status": "SUCCESS",
@@ -151,6 +148,35 @@ def generate_simbrief_dispatch(
                 "simbrief_linked": True,
                 "summary": summary,
                 "summary_text": summary,
+            }
+
+        # Case 2: SimBrief is not linked, but CrewCenter active dispatch is registered
+        is_simbrief_unlinked = False
+        if backend_res:
+            if backend_res.get("simbriefLinked") is False:
+                is_simbrief_unlinked = True
+            elif backend_res.get("_status_code") == 400 and "SimBrief account not linked" in str(backend_res.get("error", "")):
+                is_simbrief_unlinked = True
+
+        if is_simbrief_unlinked or active_res:
+            unlinked_msg = (
+                f"長官，目前沒有登錄 SimBrief，因此我目前沒辦法幫您生成 SimBrief 計畫，"
+                f"不過 CrewCenter 內部已經為您完成 Dispatch 了！\n"
+                f"• 執飛航班：{clean_flt}\n"
+                f"• 起訖場站：{clean_dep} ➔ {clean_arr}\n"
+                f"• 機型指派：{clean_type}\n"
+                f"• 執飛飛官：{pilot_display}\n"
+                f"您可隨時至 CrewCenter 派遣中心 (Dispatch Center) 查看或領取此航班起飛！"
+            )
+            return {
+                "status": "SUCCESS_INTERNAL_DISPATCH",
+                "flight_number": clean_flt,
+                "dep_icao": clean_dep,
+                "arr_icao": clean_arr,
+                "aircraft_type": clean_type,
+                "simbrief_linked": False,
+                "summary": unlinked_msg,
+                "summary_text": unlinked_msg,
             }
 
         # CrewCenter Connection Offline when authenticated
