@@ -156,15 +156,34 @@ def generate_simbrief_dispatch(
                 "summary_text": summary,
             }
 
-        # Case 2: SimBrief is not linked, but CrewCenter internal dispatch is supported
-        is_simbrief_unlinked = False
+        # Case 2: SimBrief is not linked or token expired, but CrewCenter internal dispatch is supported
+        err_str = ""
         if backend_res:
-            if backend_res.get("simbriefLinked") is False:
-                is_simbrief_unlinked = True
-            elif backend_res.get("_status_code") == 400 and "SimBrief account not linked" in str(backend_res.get("error", "")):
-                is_simbrief_unlinked = True
+            err_str = str(backend_res.get("error") or backend_res.get("message") or "")
 
-        if is_simbrief_unlinked or active_res:
+        is_token_expired = "Failed to refresh" in err_str or "reconnect" in err_str or (backend_res and backend_res.get("_status_code") == 401)
+        is_simbrief_unlinked = (
+            (backend_res and backend_res.get("simbriefLinked") is False) or
+            "SimBrief account not linked" in err_str or
+            "not linked a SimBrief" in err_str
+        )
+
+        if is_token_expired or is_simbrief_unlinked or active_res:
+            if is_token_expired:
+                reason_notice = (
+                    f"⚠️ 檢測到此飛官帳號在 CrewCenter 的 Navigraph / SimBrief 授權憑證已過期。\n"
+                    f"💡 請至 CrewCenter 個人設定頁面重新點擊【連結 Navigraph / SimBrief】更新授權！"
+                )
+            elif is_simbrief_unlinked:
+                reason_notice = (
+                    f"⚠️ 後端伺服器回報：此飛官帳號 (`{pilot_display}`) 尚未在 CrewCenter 綁定 Navigraph / SimBrief 帳號。\n"
+                    f"💡 請確認當前 Agent 授權碼對應之帳號是否與您平常綁定 SimBrief 的帳號一致；若尚未綁定，可至 CrewCenter 個人設定完成連結！"
+                )
+            else:
+                reason_notice = (
+                    f"ℹ️ SimBrief 自動生成目前不可用，但 CrewCenter 內部簽派已順利完成。"
+                )
+
             unlinked_msg = (
                 f"長官，目前沒有登錄 SimBrief，因此我目前沒辦法幫您生成 SimBrief 計畫，"
                 f"不過 CrewCenter 內部已經為您完成 Dispatch 了！\n\n"
@@ -173,7 +192,9 @@ def generate_simbrief_dispatch(
                 f"• 起訖場站：`{clean_dep} 🛫 ➔ {clean_arr} 🛬`\n"
                 f"• 機型指派：`{clean_type}` 客機\n"
                 f"• 執飛飛官：`{pilot_display}`\n\n"
-                f"您可隨時至 CrewCenter 派遣中心 (Dispatch Center) 查看或領取此航班起飛！"
+                f"{reason_notice}\n\n"
+                f"您可隨時至 CrewCenter 派遣中心 (Dispatch Center) 查看或領取此航班起飛！\n\n"
+                f"祝機長本次飛行平安順利，Happy Landings！"
             )
             return {
                 "status": "SUCCESS_INTERNAL_DISPATCH",
@@ -182,6 +203,8 @@ def generate_simbrief_dispatch(
                 "arr_icao": clean_arr,
                 "aircraft_type": clean_type,
                 "simbrief_linked": False,
+                "backend_simbrief_response": backend_res,
+                "backend_active_response": active_res,
                 "summary": unlinked_msg,
                 "summary_text": unlinked_msg,
             }
