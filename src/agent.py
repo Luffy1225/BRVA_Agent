@@ -208,7 +208,7 @@ class BRVAAgent:
                     user_context.flight_time_hours = float(u.get("flightTimeHours") or 0)
                     user_context.delegation_token = official_demo_token
                     user_context.scopes = u.get("scopes") or ["dispatch", "profile:read", "store:read", "routes"]
-                self._add_trace_observation(f"Token 驗證成功！飛官姓名：{u.get('username')}，呼號：{u.get('callsign')}，階級：{u.get('rankName')}，點數：{u.get('points')} pts")
+                self._add_trace_observation(f"Token 驗證成功！飛官姓名：{u.get('username')}，呼號：{u.get('callsign')}，階級：{u.get('rankName')}，點數：{u.get('points')} pts", result=val_res)
                 self._add_trace_thought("使用者上下文更新", "已成功將飛官資訊寫入 UserContext，授權模式激活。")
                 resp = (
                     f"👨‍✈️ **已為您一鍵切換至官方測試飛官身分！**\n\n"
@@ -223,7 +223,7 @@ class BRVAAgent:
                 return self._finish_run(resp, return_trace)
             else:
                 err_msg = val_res.get("error") if val_res else "無法連線至後端伺服器"
-                self._add_trace_observation(f"⚠️ Token 驗證失敗：{err_msg}")
+                self._add_trace_observation(f"⚠️ Token 驗證失敗：{err_msg}", result=val_res)
                 resp = f"⚠️ 無法取得測試飛官身分：{err_msg}。請確認後端 API 伺服器是否正常運行。"
                 return self._finish_run(resp, return_trace)
 
@@ -247,7 +247,7 @@ class BRVAAgent:
                     user_context.flight_time_hours = float(u.get("flightTimeHours") or 0)
                     user_context.delegation_token = raw_token
                     user_context.scopes = u.get("scopes") or []
-                self._add_trace_observation(f"驗證通過！呼號：{u.get('callsign')}，姓名：{u.get('username')}，階級：{u.get('rankName')}")
+                self._add_trace_observation(f"驗證通過！呼號：{u.get('callsign')}，姓名：{u.get('username')}，階級：{u.get('rankName')}", result=val_res)
                 self._add_trace_thought("使用者上下文更新", "飛官授權成功，個人化操作已解鎖。")
                 resp = (
                     f"👨‍✈️ **飛官身分連結成功！歡迎登機，{u.get('callsign')} 機長。**\n\n"
@@ -258,7 +258,7 @@ class BRVAAgent:
                 )
                 return self._finish_run(resp, return_trace)
             else:
-                self._add_trace_observation("⚠️ 授權碼無效、已過期或伺服器連線失敗。")
+                self._add_trace_observation("⚠️ 授權碼無效、已過期或伺服器連線失敗。", result=val_res)
                 resp = "⚠️ 抱歉長官，此授權碼無效、已過期或無法連線驗證。請確認後再試，或在側邊欄點選【⚡ 一鍵體驗飛官身分】直接進行測試！"
                 return self._finish_run(resp, return_trace)
 
@@ -292,21 +292,21 @@ class BRVAAgent:
             )
 
             if ofp_result.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ 簽派中斷：CrewCenter 主機離線或連線逾時")
+                self._add_trace_observation("⚠️ 簽派中斷：CrewCenter 主機離線或連線逾時", result=ofp_result)
                 final_resp = self._format_crewcenter_offline_response("Simbrief 航網簽派放行", user_text, ofp_result.get("summary"))
                 return self._finish_run(final_resp, return_trace)
 
             if ofp_result.get("status") == "SIMBRIEF_NOT_LINKED":
-                self._add_trace_observation("⚠️ 簽派中斷：飛行員尚未於 BRVA 簽派中心綁定 SimBrief 帳號")
+                self._add_trace_observation("⚠️ 簽派中斷：飛行員尚未於 BRVA 簽派中心綁定 SimBrief 帳號", result=ofp_result)
                 final_resp = ofp_result.get("summary")
                 return self._finish_run(final_resp, return_trace)
 
             if ofp_result.get("status") == "UNAUTHENTICATED":
-                self._add_trace_observation("⚠️ 授權中斷：尚未連結 CrewCenter 飛官個人帳號")
+                self._add_trace_observation("⚠️ 授權中斷：尚未連結 CrewCenter 飛官個人帳號", result=ofp_result)
                 final_resp = ofp_result.get("summary")
                 return self._finish_run(final_resp, return_trace)
 
-            self._add_trace_observation(f"OFP 產出成功！巡航高度 {ofp_result.get('cruise_altitude') or ofp_result.get('cruise_alt')}，Block Fuel {ofp_result.get('block_fuel_kgs')} kg")
+            self._add_trace_observation(f"OFP 產出成功！巡航高度 {ofp_result.get('cruise_altitude') or ofp_result.get('cruise_alt')}，Block Fuel {ofp_result.get('block_fuel_kgs')} kg", result=ofp_result)
             self._add_trace_thought("簽派核准完成", "清除 Agent Memory 待簽派狀態，發布 Happy Landings 祝福與放行指示。")
             self.memory.clear_pending()
             final_resp = (
@@ -335,10 +335,10 @@ class BRVAAgent:
 
             res = query_pilot_profile(query_type=query_type, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ 伺服器離線或連線逾時")
+                self._add_trace_observation("⚠️ 伺服器離線或連線逾時", result=res)
                 final_resp = self._format_crewcenter_offline_response("飛官個人檔案與數據查詢", user_text, res.get("summary"))
             else:
-                self._add_trace_observation(f"飛官數據取得完畢 (呼號: {res.get('callsign')}, 點數: {res.get('points')} pts, 時數: {res.get('flight_time_hours')} h)")
+                self._add_trace_observation(f"飛官數據取得完畢 (呼號: {res.get('callsign')}, 點數: {res.get('points')} pts, 時數: {res.get('flight_time_hours')} h)", result=res)
                 final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
@@ -352,10 +352,10 @@ class BRVAAgent:
 
             res = query_store_catalog(user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ 商城資料庫連線逾時")
+                self._add_trace_observation("⚠️ 商城資料庫連線逾時", result=res)
                 final_resp = self._format_crewcenter_offline_response("商城商品目錄查詢", user_text, res.get("summary"))
             else:
-                self._add_trace_observation(f"已取得商城架上商品清單 ({len(res.get('items', []))} 件商品) 與點數餘額 ({res.get('points', 0)} pts)")
+                self._add_trace_observation(f"已取得商城架上商品清單 ({len(res.get('items', []))} 件商品) 與點數餘額 ({res.get('points', 0)} pts)", result=res)
                 final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
@@ -386,10 +386,10 @@ class BRVAAgent:
 
             res = query_leaderboard(category=cat, sort_by=sort_by, days=days, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ 排行榜資料庫連線逾時")
+                self._add_trace_observation("⚠️ 排行榜資料庫連線逾時", result=res)
                 final_resp = self._format_crewcenter_offline_response("CrewCenter 排行榜數據查詢", user_text, res.get("summary"))
             else:
-                self._add_trace_observation(f"成功取得前 {len(res.get('leaderboard', []))} 名榮譽榜資料")
+                self._add_trace_observation(f"成功取得前 {len(res.get('leaderboard', []))} 名榮譽榜資料", result=res)
                 final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
@@ -403,10 +403,10 @@ class BRVAAgent:
 
             res = query_calendar_events(limit=5, include_rotw=True, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ 行事曆伺服器連線逾時")
+                self._add_trace_observation("⚠️ 行事曆伺服器連線逾時", result=res)
                 final_resp = self._format_crewcenter_offline_response("官方活動行事曆與每週航線查詢", user_text, res.get("summary"))
             else:
-                self._add_trace_observation(f"取得近期活動資料 ({res.get('events_count', 0)} 筆)，包含大聯飛與每週精選航線")
+                self._add_trace_observation(f"取得近期活動資料 ({res.get('events_count', 0)} 筆)，包含大聯飛與每週精選航線", result=res)
                 final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
@@ -420,10 +420,10 @@ class BRVAAgent:
 
             res = query_pilot_inventory(user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ 背包資料庫連線逾時")
+                self._add_trace_observation("⚠️ 背包資料庫連線逾時", result=res)
                 final_resp = self._format_crewcenter_offline_response("個人背包道具庫查詢", user_text, res.get("summary"))
             else:
-                self._add_trace_observation(f"取得背包道具清單 (持有 {len(res.get('inventory', []))} 項道具/特許卡)")
+                self._add_trace_observation(f"取得背包道具清單 (持有 {len(res.get('inventory', []))} 項道具/特許卡)", result=res)
                 final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
@@ -437,10 +437,10 @@ class BRVAAgent:
 
             res = query_media_gallery(limit=5, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ 藝廊伺服器連線逾時")
+                self._add_trace_observation("⚠️ 藝廊伺服器連線逾時", result=res)
                 final_resp = self._format_crewcenter_offline_response("影音藝廊精選作品查詢", user_text, res.get("summary"))
             else:
-                self._add_trace_observation(f"取得藝廊精選作品清單 ({res.get('photos_count', 0)} 張照片)")
+                self._add_trace_observation(f"取得藝廊精選作品清單 ({res.get('photos_count', 0)} 張照片)", result=res)
                 final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
@@ -473,10 +473,10 @@ class BRVAAgent:
 
             res = query_live_radar_and_tracker(callsign=target_cs, icao=target_icao, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ 航跡雷達伺服器連線逾時")
+                self._add_trace_observation("⚠️ 航跡雷達伺服器連線逾時", result=res)
                 final_resp = self._format_crewcenter_offline_response("即時航跡雷達與在空班機追蹤", user_text, res.get("summary"))
             else:
-                self._add_trace_observation(f"取得即時雷達航跡資料 (線上在空班機: {res.get('flights_count', 0)} 架)")
+                self._add_trace_observation(f"取得即時雷達航跡資料 (線上在空班機: {res.get('flights_count', 0)} 架)", result=res)
                 final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
@@ -490,10 +490,10 @@ class BRVAAgent:
 
             res = query_pilot_pireps(limit=5, user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ PIREP 資料庫連線逾時")
+                self._add_trace_observation("⚠️ PIREP 資料庫連線逾時", result=res)
                 final_resp = self._format_crewcenter_offline_response("個人飛行報告歷史紀錄查詢", user_text, res.get("summary"))
             else:
-                self._add_trace_observation(f"取得近期 PIREP 報告 ({len(res.get('pireps', []))} 筆)")
+                self._add_trace_observation(f"取得近期 PIREP 報告 ({len(res.get('pireps', []))} 筆)", result=res)
                 final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
@@ -504,10 +504,10 @@ class BRVAAgent:
 
             res = query_active_dispatch(user_context=user_context)
             if res.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ 簽派中心連線逾時")
+                self._add_trace_observation("⚠️ 簽派中心連線逾時", result=res)
                 final_resp = self._format_crewcenter_offline_response("當前有效簽派放行狀態查詢", user_text, res.get("summary"))
             else:
-                self._add_trace_observation(f"取得放行單狀態 (狀態: {res.get('status')})")
+                self._add_trace_observation(f"取得放行單狀態 (狀態: {res.get('status')})", result=res)
                 final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
@@ -543,10 +543,10 @@ class BRVAAgent:
                 user_context=user_context
             )
             if ofp_result.get("status") == "CREWCENTER_OFFLINE":
-                self._add_trace_observation("⚠️ 簽派中斷：CrewCenter 伺服器連線逾時")
+                self._add_trace_observation("⚠️ 簽派中斷：CrewCenter 伺服器連線逾時", result=ofp_result)
                 final_resp = self._format_crewcenter_offline_response("航班放行單簽派", user_text, ofp_result.get("summary"))
             else:
-                self._add_trace_observation(f"簽派處理完畢 (狀態: {ofp_result.get('status')})")
+                self._add_trace_observation(f"簽派處理完畢 (狀態: {ofp_result.get('status')})", result=ofp_result)
                 final_resp = ofp_result.get("summary") or ofp_result.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
@@ -581,7 +581,7 @@ class BRVAAgent:
 
             telemetry_res = analyze_flight_telemetry(csv_target)
 
-            self._add_trace_observation(f"審查完成！得分 {telemetry_res.get('score')} 分，違規項 {len(telemetry_res.get('violations', []))} 件")
+            self._add_trace_observation(f"審查完成！得分 {telemetry_res.get('score')} 分，違規項 {len(telemetry_res.get('violations', []))} 件", result=telemetry_res)
 
             final_resp = (
                 f"報告教官/機師，黑盒子飛行紀錄 ({csv_target}) 審查完畢：\n\n"
@@ -605,7 +605,7 @@ class BRVAAgent:
 
             rag_res = query_flight_sop_and_regulations(user_text)
 
-            self._add_trace_observation(f"知識庫命中 {len(rag_res.get('matched_documents', []))} 份官方文件 (來源: {rag_res.get('sources')})")
+            self._add_trace_observation(f"知識庫命中 {len(rag_res.get('matched_documents', []))} 份官方文件 (來源: {rag_res.get('sources')})", result=rag_res)
 
             ans_text = rag_res.get("direct_answer") or rag_res.get("answer") or ""
             chunks = rag_res.get("top_chunks", [])
@@ -648,7 +648,7 @@ class BRVAAgent:
             raw_m = weather.get("raw_metar", "N/A")
             risk_ass = weather.get("risk_assessment") or weather.get("risk_notes") or "側風適航。"
 
-            self._add_trace_observation(f"{target_icao} 即時氣象取得成功：風向 {w_dir}° / {w_spd} 節，跑道 {target_rwy} 側風分量 {cw_kts} 節（{cw_dir}側風），逆風 {hw_kts} 節（{hw_label}）")
+            self._add_trace_observation(f"{target_icao} 即時氣象取得成功：風向 {w_dir}° / {w_spd} 節，跑道 {target_rwy} 側風分量 {cw_kts} 節（{cw_dir}側風），逆風 {hw_kts} 節（{hw_label}）", result=weather)
             self._add_trace_thought("安全操作評估", f"適航安全評估：{risk_ass}")
 
             final_resp = (
@@ -719,12 +719,12 @@ class BRVAAgent:
             routes = query_virtual_routes(dep, arr, aircraft)
             flight = routes[0] if routes else {"flight_number": f"BR{dep[2:]}{arr[2:]}", "aircraft": aircraft, "flight_time": "2h 40m"}
 
-            self._add_trace_observation(f"匹配推薦班次：{flight['flight_number']}（{flight['aircraft']}，航程預估 {flight['flight_time']}）")
+            self._add_trace_observation(f"匹配推薦班次：{flight['flight_number']}（{flight['aircraft']}，航程預估 {flight['flight_time']}）", result=routes)
             self._add_trace_tool_call("fetch_aviation_weather", f"fetch_aviation_weather(icao='{arr}', runway='{target_rwy}')")
 
             weather = fetch_aviation_weather(arr, target_rwy)
 
-            self._add_trace_observation(f"{arr} 即時 METAR 取得成功，{target_rwy} 跑道側風分量 {weather['crosswind_kts']} 節")
+            self._add_trace_observation(f"{arr} 即時 METAR 取得成功，{target_rwy} 跑道側風分量 {weather['crosswind_kts']} 節", result=weather)
             self._add_trace_thought("人機協同記憶鎖定 (HITL)", f"將待簽派班次 {flight['flight_number']} 寫入 Agent Memory (PendingDispatch)，等待機長授權放行")
 
             # Save pending dispatch into Agent Memory
@@ -759,7 +759,7 @@ class BRVAAgent:
                 resp = self.llm.generate(prompt=user_text, system_prompt=SYSTEM_PROMPT)
                 if resp and resp.content:
                     if resp.content.startswith("⚠️"):
-                        self._add_trace_observation(f"⚠️ LLM 連線異常：{resp.content[:60]}")
+                        self._add_trace_observation(f"⚠️ LLM 連線異常：{resp.content[:60]}", result={"error": resp.content, "provider": self.llm.provider_name})
                         final_resp = (
                             f"⚠️ 【LLM 連線異常】\n"
                             f"目前無法連線至指定的 AI 模型 ({self.llm.provider_name})：\n"
@@ -776,11 +776,11 @@ class BRVAAgent:
                             f"• 黑盒子審核：「請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄」"
                         )
                         return self._finish_run(final_resp, return_trace)
-                    self._add_trace_observation(f"成功自 {self.llm.provider_name} ({self.llm.model_name}) 生成回應")
+                    self._add_trace_observation(f"成功自 {self.llm.provider_name} ({self.llm.model_name}) 生成回應", result={"content": resp.content, "model": self.llm.model_name, "provider": self.llm.provider_name})
                     final_resp = resp.content
                     return self._finish_run(final_resp, return_trace)
             except Exception as e:
-                self._add_trace_observation(f"⚠️ LLM 執行異常：{e}")
+                self._add_trace_observation(f"⚠️ LLM 執行異常：{e}", result={"error": str(e)})
                 final_resp = f"⚠️ 【LLM 執行異常】: {e}"
                 return self._finish_run(final_resp, return_trace)
 

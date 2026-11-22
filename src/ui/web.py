@@ -1,5 +1,6 @@
 import os
 import html
+import json
 import streamlit as st
 from src.agent import BRVAAgent, AeroAgent
 from src.context import UserContext
@@ -453,6 +454,25 @@ with st.sidebar:
 if config.LLM_PROVIDER == "gemini" and (not config.GEMINI_API_KEY or "your_gemini" in config.GEMINI_API_KEY):
     st.warning("⚠️ **尚未設定 Google Gemini API Key**：目前模型選型為 Google Gemini，請於左側側邊欄「⚙️ 參數設定與模型選型」輸入您的 API Key，或切換為 Offline 離線免金鑰模式！")
 
+def _format_result_payload(result_obj) -> str:
+    if result_obj is None:
+        return ""
+    if isinstance(result_obj, (dict, list)):
+        try:
+            return json.dumps(result_obj, ensure_ascii=False, indent=2)
+        except Exception:
+            return str(result_obj)
+    if isinstance(result_obj, str):
+        stripped = result_obj.strip()
+        if (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]")):
+            try:
+                parsed = json.loads(stripped)
+                return json.dumps(parsed, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+        return result_obj
+    return str(result_obj)
+
 def render_trace_expander(trace: list, expanded: bool = False):
     if not trace:
         return
@@ -471,41 +491,64 @@ def render_trace_expander(trace: list, expanded: bool = False):
 
     with st.expander(expander_title, expanded=expanded):
         thought_idx = 1
+        html_blocks = []
         for step in trace:
             s_type = step.get("type", "thought")
             title = step.get("title", "")
             content = step.get("content", "")
+            result = step.get("result")
 
             if s_type == "thought":
                 safe_title = html.escape(title)
                 safe_content = html.escape(content).replace("\n", "<br/>")
-                st.markdown(
-                    f"<div style='border-left: 3px solid #3b82f6; padding-left: 10px; margin-top: 6px; margin-bottom: 8px;'>"
-                    f"<span style='color: #60a5fa; font-weight: 600; font-size: 0.9em;'>💭 思考 #{thought_idx} · {safe_title}</span><br/>"
-                    f"<span style='font-size: 0.88em; opacity: 0.9; line-height: 1.4;'>{safe_content}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True
+                html_blocks.append(
+                    f"<details style='margin-bottom: 8px; border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 6px; background-color: rgba(30, 58, 138, 0.12); padding: 7px 11px;'>"
+                    f"<summary style='cursor: pointer; font-weight: 600; color: #60a5fa; font-size: 0.9em; user-select: none;'>💭 思考 #{thought_idx} · {safe_title}</summary>"
+                    f"<div style='margin-top: 6px; padding: 6px 4px 2px 4px; border-top: 1px solid rgba(59, 130, 246, 0.2); font-size: 0.88em; color: #cbd5e1; line-height: 1.5;'>{safe_content}</div>"
+                    f"</details>"
                 )
                 thought_idx += 1
             elif s_type == "tool_call":
                 tool_name = step.get("tool", "tool")
                 safe_tool = html.escape(tool_name)
-                st.markdown(
-                    f"<div style='border-left: 3px solid #10b981; padding-left: 10px; margin-top: 6px; margin-bottom: 4px;'>"
-                    f"<span style='color: #34d399; font-weight: 600; font-size: 0.9em;'>🔧 調用工具 · <code>{safe_tool}</code></span>"
-                    f"</div>",
-                    unsafe_allow_html=True
+                safe_code = html.escape(content)
+                html_blocks.append(
+                    f"<details style='margin-bottom: 8px; border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 6px; background-color: rgba(6, 78, 59, 0.12); padding: 7px 11px;'>"
+                    f"<summary style='cursor: pointer; font-weight: 600; color: #34d399; font-size: 0.9em; user-select: none;'>🔧 調用工具 · <code>{safe_tool}</code></summary>"
+                    f"<div style='margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(16, 185, 129, 0.2);'>"
+                    f"<pre style='background: #0f172a; padding: 8px 10px; border-radius: 4px; overflow-x: auto; color: #a7f3d0; font-size: 0.84em; font-family: Consolas, Monaco, monospace; margin: 0; border: 1px solid rgba(16, 185, 129, 0.25);'><code>{safe_code}</code></pre>"
+                    f"</div>"
+                    f"</details>"
                 )
-                st.code(content, language="python")
             elif s_type == "observation":
-                safe_obs = html.escape(content).replace("\n", "<br/>")
-                st.markdown(
-                    f"<div style='border-left: 3px solid #a855f7; padding-left: 10px; margin-top: 4px; margin-bottom: 12px;'>"
-                    f"<span style='color: #c084fc; font-weight: 600; font-size: 0.9em;'>📥 執行觀察 (Observation)</span><br/>"
-                    f"<span style='font-size: 0.88em; opacity: 0.88; line-height: 1.4;'>{safe_obs}</span>"
-                    f"</div>",
-                    unsafe_allow_html=True
+                clean_snippet = content.strip().split("\n")[0]
+                if len(clean_snippet) > 42:
+                    clean_snippet = clean_snippet[:40] + "..."
+                safe_snippet = html.escape(clean_snippet)
+                safe_content = html.escape(content).replace("\n", "<br/>")
+
+                payload_html = ""
+                if result is not None:
+                    raw_payload_str = _format_result_payload(result)
+                    if raw_payload_str:
+                        safe_payload = html.escape(raw_payload_str)
+                        payload_html = (
+                            f"<div style='margin-top: 8px; margin-bottom: 4px; font-weight: 600; font-size: 0.82em; color: #d8b4fe;'>📊 工具回傳資料 (Raw Tool Output):</div>"
+                            f"<pre style='background: #0b1120; padding: 8px 10px; border-radius: 4px; overflow-x: auto; max-height: 280px; overflow-y: auto; color: #e2e8f0; font-size: 0.82em; font-family: Consolas, Monaco, monospace; margin: 0; border: 1px solid rgba(168, 85, 247, 0.3);'><code>{safe_payload}</code></pre>"
+                        )
+
+                html_blocks.append(
+                    f"<details style='margin-bottom: 8px; border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 6px; background-color: rgba(88, 28, 135, 0.12); padding: 7px 11px;'>"
+                    f"<summary style='cursor: pointer; font-weight: 600; color: #c084fc; font-size: 0.9em; user-select: none;'>📥 執行觀察 (Observation) · {safe_snippet}</summary>"
+                    f"<div style='margin-top: 6px; padding: 6px 4px 2px 4px; border-top: 1px solid rgba(168, 85, 247, 0.2); font-size: 0.88em; color: #e2e8f0; line-height: 1.5;'>"
+                    f"<div style='margin-bottom: 4px;'>{safe_content}</div>"
+                    f"{payload_html}"
+                    f"</div>"
+                    f"</details>"
                 )
+
+        if html_blocks:
+            st.markdown("".join(html_blocks), unsafe_allow_html=True)
 
 # Display conversation
 for msg in st.session_state.messages:

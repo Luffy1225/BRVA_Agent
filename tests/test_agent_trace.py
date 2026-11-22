@@ -134,7 +134,7 @@ class TestAgentTrace(unittest.TestCase):
         self.assertIn("METAR", resp)
 
     def test_trace_collection_for_collapsible_ui(self):
-        """Tests that thoughts, tool calls, and observations are tracked in agent.last_trace."""
+        """Tests that thoughts, tool calls, observations and raw results are tracked in agent.last_trace."""
         resp, trace = self.agent.run("幫我查一下 RCTP 05L 即時天氣與側風", verbose=False, return_trace=True)
         self.assertIn("RCTP", resp)
         self.assertTrue(len(trace) >= 2)
@@ -149,11 +149,32 @@ class TestAgentTrace(unittest.TestCase):
         self.assertEqual(tool_steps[0]["tool"], "fetch_aviation_weather")
         self.assertEqual(self.agent.get_last_trace(), trace)
 
+        # Verify raw result payload is stored in observation step for collapsible UI
+        self.assertIsNotNone(obs_steps[0].get("result"))
+        self.assertIn("crosswind_kts", obs_steps[0]["result"])
+
         # Multi-step route planning trace
         resp2, trace2 = self.agent.run("我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)", verbose=False, return_trace=True)
         tools_invoked = [s["tool"] for s in trace2 if s["type"] == "tool_call"]
         self.assertIn("query_virtual_routes", tools_invoked)
         self.assertIn("fetch_aviation_weather", tools_invoked)
+
+        obs2 = [s for s in trace2 if s["type"] == "observation"]
+        self.assertTrue(len(obs2) >= 2)
+        # All observation steps in the multi-step chain must have raw tool result payload
+        for obs in obs2:
+            self.assertIsNotNone(obs.get("result"))
+
+    def test_format_result_payload_formatting(self):
+        """Tests _format_result_payload helper in web UI for clean collapsible JSON display."""
+        from src.ui.web import _format_result_payload
+        self.assertEqual(_format_result_payload(None), "")
+        self.assertEqual(_format_result_payload("plain string"), "plain string")
+
+        dict_payload = {"status": "SUCCESS", "flight": "BR184"}
+        formatted = _format_result_payload(dict_payload)
+        self.assertIn('"flight": "BR184"', formatted)
+        self.assertIn('"status": "SUCCESS"', formatted)
 
 if __name__ == "__main__":
     unittest.main()
