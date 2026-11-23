@@ -1,3 +1,4 @@
+import re
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from src.client import backend_client
@@ -103,11 +104,13 @@ def generate_dispatch(
     if user_context is not None and user_context.is_authenticated and user_context.delegation_token:
         # Step A: Attempt SimBrief OFP generation (if user has linked SimBrief)
         # Note: SimBrief calculation can take 10-25 seconds, so we specify a generous timeout of 40s
+        clean_flt_digits = re.sub(r"\D", "", clean_flt)
+        fltnum_digits = clean_flt_digits[:4] if clean_flt_digits else "888"
         backend_res = backend_client.post(
             "/api/dispatch/simbrief",
             json_data={
                 "airline": "EVA",
-                "fltnum": clean_flt.replace("BR", "").replace("EVA", ""),
+                "fltnum": fltnum_digits,
                 "type": clean_type,
                 "orig": clean_dep,
                 "dest": clean_arr,
@@ -353,11 +356,19 @@ def generate_dispatch(
 
         # Case 2: SimBrief is not linked, token expired, or timed out, but CrewCenter internal dispatch is supported
         err_str = ""
+        error_code = ""
         if backend_res:
             err_str = str(backend_res.get("error") or backend_res.get("message") or "")
+            error_code = str(backend_res.get("errorCode") or "")
 
-        is_token_expired = "Failed to refresh" in err_str or "reconnect" in err_str or (backend_res and backend_res.get("_status_code") == 401)
+        is_token_expired = (
+            error_code == "SIMBRIEF_TOKEN_EXPIRED" or
+            "Failed to refresh" in err_str or
+            "reconnect" in err_str or
+            (backend_res and backend_res.get("_status_code") == 401)
+        )
         is_simbrief_unlinked = (
+            error_code == "SIMBRIEF_NOT_LINKED" or
             (backend_res and backend_res.get("simbriefLinked") is False) or
             "SimBrief account not linked" in err_str or
             "not linked a SimBrief" in err_str
