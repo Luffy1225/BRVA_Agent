@@ -9,10 +9,13 @@ DATA_DIR = ROOT_DIR / "data"
 # Gracefully load .env if python-dotenv is installed
 try:
     from dotenv import load_dotenv
-    load_dotenv(ROOT_DIR / ".env")
+    if (ROOT_DIR / ".env").exists():
+        load_dotenv(ROOT_DIR / ".env")
+    elif (ROOT_DIR / "env").exists():
+        load_dotenv(ROOT_DIR / "env")
 except ImportError:
-    # Minimal fallback parser for .env
-    env_file = ROOT_DIR / ".env"
+    # Minimal fallback parser for .env / env
+    env_file = ROOT_DIR / ".env" if (ROOT_DIR / ".env").exists() else (ROOT_DIR / "env")
     if env_file.exists():
         with open(env_file, "r", encoding="utf-8") as f:
             for line in f:
@@ -41,13 +44,13 @@ def parse_secret_string(content: str) -> Dict[str, str]:
             if ku in ("API_SERVER", "BRVA_API_BASE_URL", "BASE_URL"):
                 os.environ["BRVA_API_BASE_URL"] = v
                 loaded["BRVA_API_BASE_URL"] = v
-            elif ku in ("CREWCENTER_TOKEN", "OFFICIAL_TEST_TOKEN", "TEST_PILOT_TOKEN", "BACKEND_KEY", "PILOT_TOKEN"):
+            elif ku in ("CREWCENTER_TOKEN", "OFFICIAL_TEST_TOKEN", "TEST_PILOT_TOKEN", "BACKEND_KEY", "PILOT_TOKEN", "TOKEN", "CREW_TOKEN", "CREWCENTER_KEY", "PILOT_KEY", "BEARER_TOKEN"):
                 os.environ["OFFICIAL_TEST_TOKEN"] = v
                 loaded["OFFICIAL_TEST_TOKEN"] = v
             elif ku in ("BRVA_AGENT_API_KEY", "X_AGENT_KEY"):
                 os.environ["BRVA_AGENT_API_KEY"] = v
                 loaded["BRVA_AGENT_API_KEY"] = v
-            elif ku in ("LLM_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+            elif ku in ("LLM_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "API_KEY", "GEMINI_KEY", "GEMINI_APIKEY"):
                 os.environ["GEMINI_API_KEY"] = v
                 loaded["GEMINI_API_KEY"] = v
             elif ku in ("TEST_PILOT_USERNAME",):
@@ -67,7 +70,18 @@ def load_secret_file(target_path: Optional[Path] = None) -> Dict[str, str]:
     Supports API_SERVER, CREWCENTER_TOKEN, BACKEND_KEY, LLM_API_KEY, OFFICIAL_TEST_TOKEN, etc.
     Returns the loaded dictionary of settings.
     """
-    targets = [target_path] if target_path else [ROOT_DIR / ".env", ROOT_DIR / "secret.txt", ROOT_DIR / "sercet.txt"]
+    targets = [target_path] if target_path else [
+        ROOT_DIR / ".env",
+        ROOT_DIR / "env",
+        ROOT_DIR / ".env.txt",
+        ROOT_DIR / "secret.txt",
+        ROOT_DIR / "sercet.txt",
+        ROOT_DIR.parent / ".env",
+        ROOT_DIR.parent / "env",
+        ROOT_DIR.parent / ".env.txt",
+        ROOT_DIR.parent / "secret.txt",
+        ROOT_DIR.parent / "sercet.txt",
+    ]
     for s_path in targets:
         if s_path and s_path.exists():
             try:

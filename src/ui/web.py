@@ -104,14 +104,17 @@ if "messages" not in st.session_state:
     ]
 
 # Pre-initialize session_state keys for configuration widgets
-if "top_api_server_input" not in st.session_state:
-    st.session_state.top_api_server_input = config.BRVA_API_BASE_URL
+# If uninitialized or currently empty, attempt dynamic load from secret file / config
+loaded_secrets_init = load_secret_file()
 
-if "top_crewcenter_token_input" not in st.session_state:
-    st.session_state.top_crewcenter_token_input = config.OFFICIAL_TEST_TOKEN or os.getenv("OFFICIAL_TEST_TOKEN", "")
+if "top_api_server_input" not in st.session_state or not st.session_state.top_api_server_input:
+    st.session_state.top_api_server_input = loaded_secrets_init.get("BRVA_API_BASE_URL") or config.BRVA_API_BASE_URL
 
-if "top_llm_key_input" not in st.session_state:
-    st.session_state.top_llm_key_input = config.GEMINI_API_KEY
+if "top_crewcenter_token_input" not in st.session_state or not st.session_state.top_crewcenter_token_input:
+    st.session_state.top_crewcenter_token_input = loaded_secrets_init.get("OFFICIAL_TEST_TOKEN") or config.OFFICIAL_TEST_TOKEN or os.getenv("OFFICIAL_TEST_TOKEN", "")
+
+if "top_llm_key_input" not in st.session_state or not st.session_state.top_llm_key_input:
+    st.session_state.top_llm_key_input = loaded_secrets_init.get("GEMINI_API_KEY") or config.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "")
 
 
 def on_import_secret_clicked():
