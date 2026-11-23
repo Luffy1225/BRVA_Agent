@@ -79,14 +79,14 @@ LLM 支援 Gemini API、Ollama（本地）與確定性離線規則引擎，透�
 
 ---
 
-### 3. generate_simbrief_dispatch
-• **Tool name**：`generate_simbrief_dispatch`  
-• **工具目的**：代表飛官向 CrewCenter 派遣中心發起正式 SimBrief OFP (Operational Flight Plan) 放行單生成，建立內部派遣紀錄並取得航路、巡航高度與 Block Fuel 油量。  
+### 3. generate_dispatch (相容 generate_simbrief_dispatch)
+• **Tool name**：`generate_dispatch`（別名：`generate_simbrief_dispatch`）  
+• **工具目的**：代表飛官向 CrewCenter 派遣中心發起正式飛行計畫 (OFP) 放行單生成，建立內部派遣紀錄並取得航路、巡航高度與 Block Fuel 油量。具備航段與機型自動解析功能，排班航班無須調用端硬猜或傳入機場參數，直接交由後端資料庫比對標準航網。  
 • **輸入參數**：  
-- `flight_number` (str, 必填)：航班編號（如 `"BR184"`）。  
-- `dep_icao` (str, 必填)：起飛機場 ICAO。  
-- `arr_icao` (str, 必填)：降落機場 ICAO。  
-- `aircraft_type` (Optional[str], 選填)：執電機型代碼（預設 `"B78X"`）。  
+- `flight_number` (str, 必填)：航班編號（如 `"BR3"`, `"BR184"`）。  
+- `aircraft_type` (Optional[str], 選填)：執電機型代碼（如 `"B789"`, `"B78X"`），若省略則由後端航網自動匹配預設機型。  
+- `dep_icao` (Optional[str], 選填)：起飛機場 ICAO，非定期包機可指定；排班航班若省略由後端航網自律解析。  
+- `arr_icao` (Optional[str], 選填)：降落機場 ICAO，非定期包機可指定；排班航班若省略由後端航網自律解析。  
 - `user_context` (Optional[UserContext], 選填)：飛官委託身分，內含 `delegation_token`。  
 • **輸出格式**：`Dict[str, Any]`  
 - `status`: `"SUCCESS"` / `"SIMBRIEF_NOT_LINKED"` / `"UNAUTHENTICATED"` / `"API_ERROR"`  
@@ -498,6 +498,58 @@ LLM 支援 Gemini API、Ollama（本地）與確定性離線規則引擎，透�
 📡 Active Dispatch：✅ 已核准放行，系統已同步登錄 BRVA 簽派中心
 
 Happy Landings！
+```
+
+---
+
+### 3.2 案例二：指定航班多步驟工具鏈簽派（檢索航線 ➔ 自動解析 ➔ 簽派放行）
+
+此案例展示當機師指定執飛長程航班（如跨洋航班 `BR3`）時，Agent 自主執行的 **ReAct Multi-step Tool-chain**：
+1. **輸入指令**：機師輸入「我想要飛 BR3」
+2. **Step 1 (查詢航線)**：Agent 識別意圖，首先調用 `query_flight_route_by_number` 向航網資料庫獲取 BR3 之起降場站（華盛頓 KIAD 🛫 ➔ 台北桃園 RCTP 🛬）、指派機型（B789）與航程時間（15h 0m）。
+3. **Step 2 (自律簽派)**：掌握完整航段與機型資訊後，Agent 自動鏈接調用抽象簽派工具 `generate_dispatch` 完成正式放行單生成。
+
+```
+[User Input]
+"我想要飛 BR3"
+
+[🤖 Agent 決策] 航班航網檢索
+機師欲執飛 BR3，首先查詢長榮/立榮航網獲取航班之起降場站與指派機型...
+
+[🔍 Tool Call 1]
+-> query_flight_route_by_number(flight_number='BR3')
+
+[📥 Observation 1]
+-> 成功查詢到航班航線：BR3 (KIAD -> RCTP，機型: B789)
+   • 航線起訖：KIAD (Washington Dulles) 🛫 ➔ RCTP (Taiwan Taoyuan) 🛬
+   • 指派機型：B789 客機 ｜ 表定飛行時間：15h 0m
+
+[🤖 Agent 決策] 航班放行簽派
+已掌握 BR3 航線起訖 (KIAD 🛫 ➡️ RCTP 🛬)，指派機型 B789。調用簽派引擎生成正式飛行計畫並登錄簽派中心...
+
+[🔍 Tool Call 2]
+-> generate_dispatch(flight_number='BR3', aircraft_type='B789', dep_icao='KIAD', arr_icao='RCTP')
+
+[📥 Observation 2]
+-> 簽派處理完畢 (狀態: SUCCESS)
+
+🤖 Agent 回應：
+✅ 【BRVA 簽派中心放行成功】
+已代表機長於 BRVA 簽派中心為 BR3 完成正式簽派與 OFP 飛行計畫生成！
+
+📋 【航班簽派放行概要 (Dispatch Release)】：
+• 航班編號：BR3
+• 航線起訖：KIAD 🛫 ➡️ RCTP 🛬
+• 執飛機型：B789 客機
+• 航路規劃 (Route)：KIAD DCT RCTP
+• 巡航高度：FL350 ｜ 成本指數 (CI)：035
+• 計畫燃油 (Block Fuel)：16,500 kg
+• 預估航程時間：15:00
+• 法定備降場 (Alternate)：RJTT
+
+📡 【簽派中心狀態 (Active Dispatch)】：
+• 放行狀態：✅ 已核准放行 (ACTIVE DISPATCH)
+• 系統已將飛行計畫同步登錄至 BRVA 簽派中心，機長可直接載入機載航電執飛！
 ```
 
 ---
