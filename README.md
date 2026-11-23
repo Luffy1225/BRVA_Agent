@@ -66,9 +66,9 @@ python -m streamlit run src/ui/web.py
 
 ---
 
-## 二、 21 大專業航空與 CrewCenter 工具定義 (Tool Definitions)
+## 二、 22 大專業航空與 CrewCenter 工具定義 (Tool Definitions)
 
-系統實作了 21 大專業確定性工具，涵蓋「飛行簽派與航電運算」、「官方規章 RAG 與黑盒子遙測」、「CrewCenter 飛官社群與營運」、「ATC 航管與帶飛培訓」及「星空聯盟機隊與聯營航網」五大領域。全數以強型別定義輸入/輸出 Schema，具備嚴格邊界防禦與離線降級機制：
+系統實作了 22 大專業確定性工具，涵蓋「飛行簽派與航電運算」、「官方規章 RAG 與黑盒子遙測」、「CrewCenter 飛官社群與營運」、「ATC 航管與帶飛培訓」及「星空聯盟機隊與聯營航網」五大領域。全數以強型別定義輸入/輸出 Schema，具備嚴格邊界防禦與離線降級機制：
 
 ### 🛫 類別一：飛行簽派與航電氣象工具 (Flight Operations & Dispatch)
 
@@ -86,14 +86,21 @@ python -m streamlit run src/ui/web.py
 - **錯誤處理**：若指定機型查無班次自動放寬限制；若後端離線自動回退讀取本地備用航網資料庫。
 - **💬 快速測試範例**：`"我想從桃園 RCTP 飛往成田 RJAA，開 B78X，有什麼推薦航班？"`
 
-#### 3. `generate_simbrief_dispatch`
+#### 3. `query_flight_route_by_number`
+- **目的**：依指定航班編號（如 `BR3`、`BR184`、`BR12`、`BR315`）精準查詢長榮航網起訖機場（ICAO）、指派機型、飛行時間與航線性質，防範虛擬簽派誤配。
+- **輸入**：`flight_number: str`（如 "BR3"、"BR184"）。
+- **輸出**：`status`、`flight_number`、`dep`、`arr`、`aircraft`、`flight_time`、`is_cargo`、`route_type`、`summary`。
+- **錯誤處理**：查無航班時絕不盲目猜測或預設航線，主動提示機師核對班號或提供起訖機場代碼。
+- **💬 快速測試範例**：`"查詢 BR3 航班航線與指派機型"` 或 `"BR3 是飛哪裡？"`
+
+#### 4. `generate_simbrief_dispatch`
 - **目的**：結合飛官授權向 SimBrief 生成正式 OFP 放行單，並將簽派紀錄寫入 CrewCenter 後端資料庫。
 - **輸入**：`flight_number: str`、`dep_icao: str`、`arr_icao: str`、`aircraft_type: str`、`user_context: Optional[UserContext]`。
 - **輸出**：`status`、`route`、`cruise_altitude`、`block_fuel_kgs`、`summary`。
 - **錯誤處理**：未授權訪客回傳登入提示；若飛官尚未綁定 SimBrief，回傳保留提示與綁定引導；伺服器斷線自動啟用確定性離線放行引擎。
-- **💬 快速測試範例**：`"幫我簽派 BR184 飛往成田"` 或人機協同授權 `"好的，幫我直接簽派！"`
+- **💬 快速測試範例**：`"幫我簽派 BR184 飛往成田"`、`"幫我簽派 BR3"` 或人機協同授權 `"好的，幫我直接簽派！"`
 
-#### 4. `query_active_dispatch`
+#### 5. `query_active_dispatch`
 - **目的**：查詢飛官當前已生成且生效中的簽派放行單 (Active Dispatch) 狀態與詳細參數。
 - **輸入**：`user_context: Optional[UserContext]` (需驗證身分)。
 - **輸出**：`has_active_dispatch`、`dispatch` (航班編號、航段、機型、Block Fuel、備降場)。
@@ -226,28 +233,31 @@ python -m streamlit run src/ui/web.py
 - **錯誤處理**：呼號自動模糊正規化（去除空白與連字號）；查無在空時友善告知。
 - **💬 快速測試範例**：`"查詢目前有哪些長榮班機在線上飛行？"` 或 `"雷達追蹤 EVA001 班機目前飛到哪裡？"`
 
-#### 20. `query_codeshare_partners`
+#### 21. `query_codeshare_partners`
 - **目的**：查詢長榮虛擬航空星空聯盟 (Star Alliance) 聯營 Codeshare 夥伴航空公司總數與詳細名單（全日空 ANA、新加坡航空 SQ、聯合航空 UA、韓亞航空 OZ、土耳其航空 TK 等）。
 - **輸入**：`user_context: Optional[UserContext]`。
 - **輸出**：`total_codeshare_partners`、`partners` (代碼、名稱、國家、樞紐)、`summary`。
 - **錯誤處理**：連線中斷自動載入星空聯盟官方合作航司標準名冊。
 - **💬 快速測試範例**：`"長榮航空現在有幾個 codeshare 夥伴？名單有哪些航空公司？"`
 
-#### 21. `recommend_routes_and_codeshares`
-- **目的**：智慧推薦合適執飛之精選航線，支援依星空聯盟夥伴航司（如 `ANA`、`SQ`、`UA`）或航線分類（`codeshare` 聯營、`long` 長程、`short` 短程、`cargo` 貨運、`popular` 熱門）篩選。
+#### 22. `recommend_routes_and_codeshares`
+- **目的**：智慧推薦合適執飛之精選航線，支援每週精選雙倍哩程航線 (ROTW · 2.0x 哩程加倍)、星空聯盟夥伴航司（如 `ANA`、`SQ`、`UA`）或航線分類（`rotw` 精選、`codeshare` 聯營、`long` 長程、`short` 短程、`cargo` 貨運、`popular` 熱門）篩選。
 - **輸入**：`category: Optional[str]`、`airline: Optional[str]`、`dep_icao: Optional[str]`、`arr_icao: Optional[str]`、`user_context: Optional[UserContext]`。
-- **輸出**：`recommended_count`、`routes` (班號、起降場、推薦機型、航程時長)、`summary`。
+- **輸出**：`recommended_count`、`routes` (班號、起降場、推薦機型、航程時長、加倍倍率)、`summary`。
 - **錯誤處理**：查無特定條件時自動擴展為熱門精選航線推薦。
-- **💬 快速測試範例**：`"請推薦我幾條適合執飛的 ANA 星空聯盟 Codeshare 聯營航線"` 或 `"推薦幾條熱門長程航線"`
+- **💬 快速測試範例**：`"推薦本週 ROTW 每週精選雙倍哩程航線"` 或 `"請推薦我幾條適合執飛的 ANA 星空聯盟 Codeshare 聯營航線"`
 
 ---
 
 ### 🛠️ 快速測試案例預設集對照表 (Demo Presets Quick Reference)
 
-為方便評審與飛官快速驗證所有 21 大工具呼叫，Streamlit 視覺化網頁介面已在左側側邊欄整合「🛠️ 快速測試案例 (Demo Presets)」面板，劃分為 4 大標籤頁，每顆按鈕均對應明確的航空情境與 Tool Call：
+為方便評審與飛官快速驗證所有 22 大工具呼叫，Streamlit 視覺化網頁介面已在左側側邊欄整合「🛠️ 快速測試案例 (Demo Presets)」面板，劃分為 4 大標籤頁，每顆按鈕均對應明確的航空情境與 Tool Call：
 
 | 分頁標籤 | 快速按鈕名稱 | 自然語言 Prompt 範例 | 觸發工具調用 (Tool Call) |
 | :--- | :--- | :--- | :--- |
+| **🛫 簽派氣象** | ✈️ 簽派長途航線 BR3 | `幫我簽派 BR3` | `generate_simbrief_dispatch` (KIAD ➔ RCTP B789) |
+| **🛫 簽派氣象** | 🔎 查詢航班起訖與機型 | `查詢 BR3 航班航線與指派機型` | `query_flight_route_by_number` |
+| **🛫 簽派氣象** | 🌟 ROTW 每週精選雙倍航線 | `推薦本週 ROTW 每週精選雙倍哩程航線` | `recommend_routes_and_codeshares` (ROTW 2.0x) |
 | **🛫 簽派氣象** | 🛫 航線推薦與起降側風分析 | `我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣...` | `query_virtual_routes` + `fetch_aviation_weather` |
 | **🛫 簽派氣象** | 📑 直接簽派航班 (BR184) | `幫我簽派 BR184 飛往成田` | `generate_simbrief_dispatch` |
 | **🛫 簽派氣象** | 📡 查詢生效中簽派單 | `查詢我目前是否有生效中的簽派放行單 (Active Dispatch)？` | `query_active_dispatch` |
@@ -437,7 +447,7 @@ BRVA_Agent/
 │   ├── context.py             # 飛官身分與授權上下文 (UserContext)
 │   ├── memory.py              # 多輪對話歷史與待簽派狀態暫存
 │   ├── llm/                   # 多模型抽象層 (Gemini / Ollama / Offline)
-│   ├── tools/                 # 21 大確定性航空專業與 CrewCenter 工具
+│   ├── tools/                 # 22 大確定性航空專業與 CrewCenter 工具
 │   │   ├── weather_tool.py    # 起降 METAR 氣象與跑道側風運算
 │   │   ├── route_tool.py      # 長榮虛擬航網多條件檢索
 │   │   ├── simbrief_tool.py   # SimBrief 飛航放行單 (OFP) 生成

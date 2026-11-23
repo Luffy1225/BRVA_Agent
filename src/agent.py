@@ -29,6 +29,8 @@ from src.tools import (
     query_live_overview,
     query_codeshare_partners,
     recommend_routes_and_codeshares,
+    find_route_by_flight_number,
+    query_flight_route_by_number,
 )
 from src.llm import BaseLLMProvider, get_llm_provider
 
@@ -493,7 +495,8 @@ class BRVAAgent:
             "推薦航線", "推薦航班", "推薦班次", "推薦幾條", "推薦個航線", "有什麼航線", "有什麼航班",
             "某 codeshare", "某codeshare", "codeshare 航線", "codeshare航線", "聯營航線", "聯營航班",
             "ana 航線", "全日空航線", "星空聯盟航線", "聯合航空航線", "新航航線", "新加坡航空航線",
-            "長程航線", "短程航線", "熱門航線", "推薦想飛", "想飛哪", "不知道飛哪"
+            "長程航線", "短程航線", "熱門航線", "推薦想飛", "想飛哪", "不知道飛哪",
+            "rotw", "每週精選", "當週精選", "加倍航線", "雙倍航線"
         ]
         is_route_rec = any(k in user_text.lower() for k in route_recommend_keywords)
         is_specific_flight_query = any(w in user_text for w in ["飛往", "前往", "目的地天氣", "側風風險", "預計開"])
@@ -501,7 +504,9 @@ class BRVAAgent:
             cat = None
             al = None
             u_low = user_text.lower()
-            if "ana" in u_low or "全日空" in u_low:
+            if "rotw" in u_low or "每週精選" in u_low or "當週精選" in u_low or "雙倍" in u_low or "加倍" in u_low:
+                cat = "rotw"
+            elif "ana" in u_low or "全日空" in u_low:
                 al = "ANA"
             elif "ua" in u_low or "united" in u_low or "聯合" in u_low:
                 al = "United"
@@ -700,7 +705,7 @@ class BRVAAgent:
             return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
-        # 1J. Direct Flight Dispatch Check (e.g. 幫我簽派 BR184, 簽派 BR184)
+        # 1J. Direct Flight Dispatch Check (e.g. 幫我簽派 BR184, 簽派 BR3)
         # -------------------------------------------------------------
         flt_match = re.search(r'(?:幫我|直接|請|立即)?(?:簽派|派飛|dispatch)\s*(?:航班)?\s*(BR\s*\d+|EVA\s*\d+|\b\d{3,4}\b)', user_text, re.IGNORECASE)
         if flt_match and not any(q in user_text for q in ["推薦", "檢查", "查詢", "有哪些"]):
@@ -708,26 +713,30 @@ class BRVAAgent:
             if not matched_flt.startswith("BR") and not matched_flt.startswith("EVA"):
                 matched_flt = f"BR{matched_flt}"
 
-            # Standard city pairs for EVA flights or default RCTP->RJAA
-            dep = "RCTP"
-            arr = "RJAA"
-            if "184" in matched_flt or "198" in matched_flt:
-                dep, arr = "RCTP", "RJAA"
-            elif "178" in matched_flt:
-                dep, arr = "RCTP", "RJBB"
-            elif "851" in matched_flt or "855" in matched_flt or "871" in matched_flt:
-                dep, arr = "RCTP", "VHHH"
-            elif "12" in matched_flt:
-                dep, arr = "RCTP", "KLAX"
+            # Dynamically resolve flight route from EVA Virtual database
+            route_info = find_route_by_flight_number(matched_flt)
+            if not route_info:
+                self._add_trace_thought("長榮航網查無此航班", f"在航網資料庫中未匹配到航班 {matched_flt} 之標準航線")
+                self._add_trace_observation(f"⚠️ 航網中查無 {matched_flt} 航線資料")
+                return self._finish_run(
+                    f"長官，在長榮航網資料庫中查無航班編號 **{matched_flt}**。\n\n"
+                    f"請確認航班編號是否正確（例如 `BR3`、`BR184`、`BR12`、`BR315`），或直接提供起訖機場代碼（例如 `簽派 RCTP 到 RJAA`），我將立即為您安排簽派放行！",
+                    return_trace
+                )
 
-            self._add_trace_thought("指定航班直接簽派", f"識別為明確指定航班簽派請求: {matched_flt} ({dep} -> {arr})，機型: B78X")
-            self._add_trace_tool_call("generate_simbrief_dispatch", f"generate_simbrief_dispatch(flight_number='{matched_flt}', dep_icao='{dep}', arr_icao='{arr}', aircraft_type='B78X')")
+            dep = route_info.get("dep")
+            arr = route_info.get("arr")
+            aircraft = route_info.get("aircraft") or "B78X"
+            matched_flt = route_info.get("flight_number") or matched_flt
+
+            self._add_trace_thought("指定航班直接簽派", f"於長榮航網資料庫中匹配到 {matched_flt}: {dep} -> {arr}，機型: {aircraft}")
+            self._add_trace_tool_call("generate_simbrief_dispatch", f"generate_simbrief_dispatch(flight_number='{matched_flt}', dep_icao='{dep}', arr_icao='{arr}', aircraft_type='{aircraft}')")
 
             ofp_result = generate_simbrief_dispatch(
                 flight_number=matched_flt,
                 dep_icao=dep,
                 arr_icao=arr,
-                aircraft_type="B78X",
+                aircraft_type=aircraft,
                 user_context=user_context
             )
             self._last_ofp_info = ofp_result.get("simbrief_data")
@@ -737,6 +746,32 @@ class BRVAAgent:
             else:
                 self._add_trace_observation(f"簽派處理完畢 (狀態: {ofp_result.get('status')})", result=ofp_result)
                 final_resp = ofp_result.get("summary") or ofp_result.get("summary_text", "")
+            return self._finish_run(final_resp, return_trace)
+
+        # -------------------------------------------------------------
+        # 1L. Query Flight Route Information (e.g. 查詢 BR3, BR3 飛哪裡, 查航班 BR184, BR3 航線)
+        # -------------------------------------------------------------
+        flt_query_match = re.search(r'(?:查詢|查|找|看|請問)?\s*(?:航班|航線)?\s*(BR\s*\d+|EVA\s*\d+|\b\d{3,4}\b)\s*(?:是|飛|的航線|航線|飛哪裡|飛去哪|在哪|是什麼|資訊|資料)?', user_text, re.IGNORECASE)
+        is_route_query = (
+            flt_query_match
+            and not any(d in user_text for d in ["簽派", "派飛", "dispatch", "執飛"])
+            and any(q in user_text for q in ["查詢", "查", "航線", "飛哪", "航班", "資訊", "資料", "是飛", "哪裡", "在哪", "起訖"])
+        )
+        if is_route_query:
+            raw_flt = flt_query_match.group(1).replace(" ", "").upper()
+            if not raw_flt.startswith("BR") and not raw_flt.startswith("EVA"):
+                raw_flt = f"BR{raw_flt}"
+
+            self._add_trace_thought("查詢航班航線資訊", f"正在檢索長榮航網資料庫中航班 {raw_flt} 之起訖機場、機型與航程")
+            self._add_trace_tool_call("query_flight_route_by_number", f"query_flight_route_by_number(flight_number='{raw_flt}')")
+
+            res = query_flight_route_by_number(flight_number=raw_flt, user_context=user_context)
+            if res.get("status") == "SUCCESS":
+                r_data = res.get("route", {})
+                self._add_trace_observation(f"成功查詢到航班航線：{r_data.get('flight_number')} ({r_data.get('dep')} -> {r_data.get('arr')}，機型: {r_data.get('aircraft')})", result=res)
+            else:
+                self._add_trace_observation(f"未在航網中找到航班 {raw_flt}", result=res)
+            final_resp = res.get("summary") or res.get("summary_text", "")
             return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------

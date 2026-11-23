@@ -446,6 +446,15 @@ with st.sidebar:
     ])
 
     with tab_dispatch:
+        if st.button("✈️ 簽派長途跨洋航線 BR3 (KIAD ➔ RCTP B789)", width="stretch"):
+            st.session_state.prompt_input = "幫我簽派 BR3"
+
+        if st.button("🔎 查詢航班起訖與機型 (BR3 航線)", width="stretch"):
+            st.session_state.prompt_input = "查詢 BR3 航班航線與指派機型"
+
+        if st.button("🌟 ROTW 每週精選雙倍航線推薦 (2.0x 哩程加倍)", width="stretch"):
+            st.session_state.prompt_input = "推薦本週 ROTW 每週精選雙倍哩程航線"
+
         if st.button("🛫 航線推薦與起降側風分析 (RCTP ➔ RJAA)", width="stretch"):
             st.session_state.prompt_input = "我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣，推薦合適的班次，並告訴我降落時需要注意的風向風險。"
 

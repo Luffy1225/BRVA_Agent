@@ -244,7 +244,42 @@ def run_e2e_tests():
     assert "推薦" in resp_13_2 or "NH" in resp_13_2 or "ANA" in resp_13_2, "應包含推薦航線"
     print("\n✅ [PASS] 13. 星空聯盟夥伴與聯營航線推薦成功！")
 
-    separator("🎉 全部 13 大測試情境 100% 通過！ReAct + 21大專業工具 + 官方規章 RAG + CrewCenter 擴充工具鏈完全正常！")
+    # -------------------------------------------------------------
+    # 測試情境十四：航班精準航線查詢、跨洋簽派與 ROTW 雙倍加成 (BR3 KIAD ➔ RCTP & ROTW)
+    # -------------------------------------------------------------
+    separator("測試 14：航班精準航網查詢、長途簽派與 ROTW 雙倍加成 (query_flight_route & BR3 Dispatch & ROTW)")
+    prompt_14_1 = "查詢 BR3 航班航線與指派機型"
+    print(f"🧑 飛官提問: {prompt_14_1}\n")
+    resp_14_1 = agent.run(prompt_14_1, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_14_1}")
+    assert "KIAD" in resp_14_1 and "RCTP" in resp_14_1, "BR3 航線起訖必須為 KIAD ➔ RCTP"
+    assert "B789" in resp_14_1, "BR3 機型必須為 B789"
+    print("✅ [PASS] 14.1 航班航線精準查詢成功 (BR3 -> KIAD ➔ RCTP B789)！")
+
+    prompt_14_2 = "幫我簽派 BR3"
+    print(f"\n🧑 飛官命令: {prompt_14_2}\n")
+    resp_14_2 = agent.run(prompt_14_2, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_14_2}")
+    assert "KIAD" in resp_14_2 and "RCTP" in resp_14_2, "BR3 簽派起訖必須為 KIAD ➔ RCTP"
+    assert "RJAA" not in resp_14_2 or "RJAA 🛬" not in resp_14_2, "BR3 絕不可誤簽派為 RJAA"
+    print("✅ [PASS] 14.2 指定航班直接簽派成功，零錯誤 fallback！")
+
+    prompt_14_3 = "推薦本週 ROTW 每週精選雙倍哩程航線"
+    print(f"\n🧑 飛官提問: {prompt_14_3}\n")
+    resp_14_3 = agent.run(prompt_14_3, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_14_3}")
+    assert "ROTW" in resp_14_3 and "2.0x" in resp_14_3, "應包含 ROTW 2.0x 雙倍加成資訊"
+    print("✅ [PASS] 14.3 ROTW 每週精選雙倍航線推薦成功！")
+
+    prompt_14_4 = "幫我簽派 BR9999"
+    print(f"\n🧑 飛官命令: {prompt_14_4}\n")
+    resp_14_4 = agent.run(prompt_14_4, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_14_4}")
+    assert "查無航班編號" in resp_14_4 or "查無" in resp_14_4, "未知航班應正確警示查無資料"
+    assert "RJAA 🛬" not in resp_14_4, "未知航班絕不可盲目放行至 RJAA"
+    print("✅ [PASS] 14.4 未知航班防禦檢查成功，無任意默認簽派！")
+
+    separator("🎉 全部 14 大測試情境 100% 通過！ReAct + 22 大專業工具 + 官方規章 RAG + CrewCenter 擴充工具鏈完全正常！")
 
 if __name__ == "__main__":
     run_e2e_tests()

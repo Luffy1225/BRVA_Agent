@@ -4,10 +4,53 @@ from src.client import backend_client
 from src.context import UserContext
 
 class CodeshareQueryInput(BaseModel):
-    category: Optional[str] = Field(None, description="推薦類型，如 'codeshare' (聯營), 'popular' (熱門), 'long' (長程跨洋), 'short' (區域短程), 'cargo' (貨機)")
+    category: Optional[str] = Field(None, description="推薦類型，如 'rotw' (每週精選雙倍哩程), 'codeshare' (聯營), 'popular' (熱門), 'long' (長程跨洋), 'short' (區域短程), 'cargo' (貨機)")
     airline: Optional[str] = Field(None, description="指定航空公司代碼或名稱，如 'ANA', 'NH', 'UA', 'SQ', 'EVA', '星空聯盟'")
     dep_icao: Optional[str] = Field(None, description="出發機場 ICAO，如 'RCTP'")
     arr_icao: Optional[str] = Field(None, description="抵達機場 ICAO，如 'RJAA'")
+
+DEFAULT_ROTW_ROUTES = [
+    {
+        "flight_number": "BR3",
+        "dep": "KIAD", "dep_name": "華盛頓杜勒斯",
+        "arr": "RCTP", "arr_name": "台北桃園",
+        "aircraft": "B787-9",
+        "duration": "15h 0m",
+        "airline": "長榮航空 (EVA Air)",
+        "type": "rotw",
+        "multiplier": "🌟 2.0x 雙倍哩程 (ROTW 精選)"
+    },
+    {
+        "flight_number": "BR315",
+        "dep": "RCTP", "dep_name": "台北桃園",
+        "arr": "YBBN", "arr_name": "布里斯本",
+        "aircraft": "B787-10",
+        "duration": "08h 30m",
+        "airline": "長榮航空 (EVA Air)",
+        "type": "rotw",
+        "multiplier": "🌟 2.0x 雙倍哩程 (ROTW 精選)"
+    },
+    {
+        "flight_number": "BR395",
+        "dep": "RCTP", "dep_name": "台北桃園",
+        "arr": "VVTS", "arr_name": "胡志明新山一",
+        "aircraft": "A321-200",
+        "duration": "03h 25m",
+        "airline": "長榮航空 (EVA Air)",
+        "type": "rotw",
+        "multiplier": "🌟 2.0x 雙倍哩程 (ROTW 精選)"
+    },
+    {
+        "flight_number": "BR184 / NH5824",
+        "dep": "RCTP", "dep_name": "台北桃園",
+        "arr": "RJAA", "arr_name": "東京成田",
+        "aircraft": "B787-10",
+        "duration": "02h 40m",
+        "airline": "長榮航空 / 全日空 (ANA Codeshare)",
+        "type": "rotw",
+        "multiplier": "🌟 2.0x 雙倍哩程 (ROTW 精選)"
+    }
+]
 
 DEFAULT_CODESHARE_PARTNERS = [
     {"name": "全日空 (All Nippon Airways)", "code": "NH", "alliance": "Star Alliance", "routes_count": 18, "is_codeshare": True},
@@ -207,6 +250,76 @@ def recommend_routes_and_codeshares(
     if not routes_pool:
         routes_pool = DEFAULT_FEATURED_ROUTES
 
+    # 1. Check if user explicitly asked for ROTW or general recommendation
+    is_rotw_focused = False
+    if category:
+        cat_lower = category.lower().strip()
+        if any(k in cat_lower for k in ["rotw", "每週", "當週", "雙倍", "加倍"]):
+            is_rotw_focused = True
+
+    # Try querying active calendar events for ROTW
+    live_rotw_routes = []
+    try:
+        cal_res = backend_client.get("/api/calendar/events", params={"includeRotw": "true", "limit": "10"}, user_token=token)
+        if cal_res and isinstance(cal_res, dict) and cal_res.get("success"):
+            events = cal_res.get("data") or []
+            for ev in events:
+                t_up = str(ev.get("title", "")).upper()
+                meta = ev.get("metadata") or {}
+                if "ROTW" in t_up or meta.get("isROTW"):
+                    # Event is active ROTW
+                    break
+    except Exception as e:
+        print(f"[crewcenter_codeshare_tool] ROTW live event check error: {e}")
+
+    # Fallback / static ROTW pool
+    rotw_pool = list(DEFAULT_ROTW_ROUTES)
+
+    if is_rotw_focused:
+        filtered = rotw_pool
+        if dep_icao:
+            filtered = [r for r in filtered if r["dep"].upper() == dep_icao.strip().upper()]
+        if arr_icao:
+            filtered = [r for r in filtered if r["arr"].upper() == arr_icao.strip().upper()]
+        if not filtered:
+            filtered = rotw_pool
+
+        lines = [
+            f"🌟 **長榮航網 · ROTW (Route of the Week) 當週精選雙倍哩程航線**\n",
+            f"長榮虛擬航空每週精選雙倍航線 (ROTW) 現正開放中！執飛以下指定航班享有 **2.0x 飛行哩程與虛擬積分加倍**：\n"
+        ]
+
+        for idx, r in enumerate(filtered[:4], 1):
+            fn = r.get("flight_number")
+            dep = r.get("dep")
+            dep_n = r.get("dep_name", dep)
+            arr = r.get("arr")
+            arr_n = r.get("arr_name", arr)
+            ac = r.get("aircraft")
+            dur = r.get("duration")
+            al = r.get("airline")
+            mul = r.get("multiplier", "🌟 2.0x 雙倍哩程")
+
+            lines.append(
+                f"**{idx}. 航班：`{fn}`** ｜ `{al}`\n"
+                f"   • 航線起訖：**{dep} ({dep_n}) 🛫 ➔ {arr} ({arr_n}) 🛬**\n"
+                f"   • 推薦機型：`{ac}` ｜ 預估飛行時間：`{dur}`\n"
+                f"   • 營運加成：<span style='color: #10b981; font-weight: 700;'>{mul}</span>\n"
+            )
+
+        lines.append(
+            "👉 **機長快速簽派**：直接對我說「**幫我簽派 BR3**」或「**簽派 BR315**」，將立刻為您生成 SimBrief 放行單，起飛即可享受雙倍哩程加成！"
+        )
+        summary_text = "\n".join(lines).strip()
+        return {
+            "status": "SUCCESS",
+            "category": "rotw",
+            "recommended_count": len(filtered[:4]),
+            "routes": filtered[:4],
+            "summary": summary_text,
+            "summary_text": summary_text
+        }
+
     # Apply filters locally
     filtered = list(routes_pool)
 
@@ -237,6 +350,12 @@ def recommend_routes_and_codeshares(
 
     if not filtered:
         filtered = DEFAULT_FEATURED_ROUTES[:4]
+
+    # For general recommendations, always feature ROTW routes at the top with 2.0x bonus
+    if not airline and (not category or category in ["popular", "recommend"]):
+        rotw_samples = DEFAULT_ROTW_ROUTES[:2]
+        rotw_fns = {r["flight_number"] for r in rotw_samples}
+        filtered = rotw_samples + [r for r in filtered if r["flight_number"] not in rotw_fns]
 
     # Format result markdown
     tag_desc = f" · 條件：{airline or category or '精選推薦'}"
