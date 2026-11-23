@@ -21,6 +21,7 @@ COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY data/ ./data/
 COPY tests/ ./tests/
+COPY .env.example ./.env.example
 
 # Security: Non-root user
 RUN useradd -m -u 1000 aero && chown -R aero:aero /app

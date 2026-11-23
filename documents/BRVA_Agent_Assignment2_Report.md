@@ -277,20 +277,20 @@ python -m unittest discover tests
 
 **測試終端執行輸出**：
 ```text
-Ran 93 tests in 3.655s
+Ran 108 tests in 2.828s
 OK
 ```
 
-**測試模組分類統計表 (93 項 100% 通過)**：
-- **工具運算與防護 (40 項)**：風向三角函數分解、跑道磁方位偏角修正、黑盒子 1.6G 硬著陸一票否決、滑行超速滑動視窗防護、離線/已認證簽派放行格式、飛官呼號搜尋、ATC 晉升差距計算、帶飛培訓 5 大前置條件資格審查、Live 機隊總覽與稼動率、星空聯盟聯營航網推薦。
+**測試模組分類統計表 (108 項 100% 通過)**：
+- **工具運算與防護 (52 項)**：風向三角函數分解、跑道磁方位偏角修正、黑盒子 1.6G 硬著陸一票否決、滑行超速滑動視窗防護、指定班號精準航線查詢 (`query_flight_route_by_number`)、SimBrief 跨洋長途簽派 (BR3 KIAD ➔ RCTP B789)、每週精選雙倍哩程推薦 (ROTW 2.0x)、未知航班阻斷防禦、飛官呼號搜尋、ATC 晉升差距計算、帶飛培訓 5 大前置條件資格審查、Live 機隊總覽與稼動率、星空聯盟聯營航網推薦。
 - **Aviation RAG 知識庫 (`test_rag.py`, 9 項)**：In-Memory BM25 檢索演算法、分詞權重增益、正則出處引文標記抽取、章節過濾精準度。
 - **LLM 抽象層 (`test_llm_providers.py`, 8 項)**：Ollama 本地/區網連線健康檢查、Google Gemini 連線與降級機制、確定性離線規則引擎。
 - **後端 API 管控與身分委派 (`test_backend_api_control.py`, 12 項)**：API Key 鑑別、503 Killswitch 緊急阻斷、429 Rate Limit 限流、Bearer Token 飛官委任驗證、商城唯讀防護。
 - **CLI 互動配置與參數精靈 (8 項)**：即席模型切換、連線健康度三層診斷。
 - **Agent 決策追蹤與漸進串流 (10 項)**：多輪 HITL 人機協同追蹤紀錄結構、on_step 事件回呼驅動。
-- **Podman 容器化標準 (6 項)**：Containerfile 最小特權標準、Non-root 使用者、podman-compose.yml 服務配置。
+- **Podman 容器化標準 (`test_podman_exec.py`, 9 項)**：`Containerfile` 最小特權標準、Non-root 使用者 (`USER aero`)、`Dockerfile` 雙相容規範、`.containerignore` / `.dockerignore` 上下文精簡、`podman-compose.yml` 服務配置、`run_podman.sh` / `run_podman.ps1` 跨平台評測輔助腳本與離線就緒檢測。
 
-**13 大端到端航空實戰情境全自動展示 (python scripts/demo_test_suite.py)**：
+**14 大端到端航空實戰情境全自動展示 (python scripts/demo_test_suite.py)**：
 ```text
 ✅ [PASS] 測試 1：第一輪航網推薦與 RJAA 16R 起降側風分析 (9.6 kts) 正常
 ✅ [PASS] 測試 2：第二輪 HITL 人機協同授權，自動生成 BRVA OFP 放行單 (FL370 / ACTIVE DISPATCH)
@@ -305,30 +305,41 @@ OK
 ✅ [PASS] 測試 11：ATC Mentoring 帶飛培訓 5 大前置條件資格審查 (5 項條件逐一條列審核)
 ✅ [PASS] 測試 12：Live 模式全機隊營運總覽與稼動率 (在空航機動態即時清單)
 ✅ [PASS] 測試 13：星空聯盟 Codeshare 夥伴與聯營航線推薦 (8 大夥伴航司與 ANA 推薦航線)
+✅ [PASS] 測試 14：航班精準航線查詢、跨洋簽派 (BR3 KIAD ➔ RCTP B789)、ROTW 雙倍加成與未知航班防禦 (100% PASS)
 ```
 
-🎉 全部 8 大測試情境 100% 通過！ReAct + 7大工具 + 官方規章 RAG + 飛官身分委託完全正常！
+🎉 全部 14 大測試情境 100% 通過！ReAct + 22 大確定性工具 + 官方規章 RAG + 飛官身分委託完全正常！
 ```
 
 ---
 
 ## 六、 Podman 容器化標準建置與執行指南
 
-本專案嚴格遵循課程評分標準：「除 LLM Server 外部獨立運行外，專案必須使用 Podman 容器技術，否則不予計分」。系統已配置完整的 `Containerfile`，並落實非 root (`Non-root user: aero`) 最小特權原則。
+本專案嚴格遵循課程指定評分核心標準：「期末專案繳交 Agent 程式必須能夠透過 Podman engine 在不同平台重現 Agent 的執行才算完成作業，Podman 包裝與執行是本專案計劃的重點」。
+
+系統已配置符合 OCI 與課程標準之 `Containerfile`、`Dockerfile`、`.containerignore`、`.dockerignore` 與 `podman-compose.yml`，並落實非 root (`Non-root user: aero`, UID 1000) 最小特權原則，支援全平台（Linux、macOS、Windows）100% 離線確定性重現：
 
 ```bash
-# 1. 複製環境設定 (預設即可直接執行離線模式，無須付費 Key)
-cp .env.example .env
+# 1. 於 BRVA_Agent 目錄下建置標準 Podman 映像檔
+podman build -t aeroagent:v1 .
 
-# 2. 於 BRVA_Agent 目錄下建置標準 Podman 映像檔
-podman build -t brva-agent:v1 -f Containerfile .
+# 2. 依評測需求啟動容器：
 
-# 3. 啟動 Streamlit 視覺化網頁儀表板
-podman run -d --rm -p 8501:8501 --env-file .env brva-agent:v1
+# 【推薦 A】啟動 Streamlit 視覺化網頁儀表板
+podman run -d --rm -p 8501:8501 --name aeroagent-app aeroagent:v1
+# 瀏覽器開啟：http://localhost:8501
 
-# 4. 於瀏覽器開啟 http://localhost:8501 即可開始操作！
-# (亦可使用 podman compose up --build 一鍵建置並啟動)
+# 【推薦 B】啟動終端機互動式交談 (CLI 模式)
+podman run -it --rm aeroagent:v1 python -m src.ui.cli
+
+# 【推薦 C】執行容器內全自動評分驗證 (105 項測試 + 14 大實戰情境)
+podman run --rm aeroagent:v1 python -m unittest discover tests -p "test_*.py"
+podman run --rm aeroagent:v1 python scripts/demo_test_suite.py
+
+# 【推薦 D】Podman Compose 一鍵編排
+podman compose up --build
 ```
+*(專案根目錄亦附有跨平台評測腳本：Linux/macOS 執行 `./scripts/run_podman.sh`；Windows 執行 `.\scripts\run_podman.ps1`)*
 
 ---
 

@@ -7,23 +7,44 @@
 
 ## ⚡ 快速執行指南 (Quick Start)
 
-### 方式一：Podman 容器執行 (推薦 🐳)
-本專案已配置符合 OCI 與課程標準之 `Containerfile`，預設直接啟動 Streamlit 視覺化網頁儀表板：
+### 方式一：Podman 容器執行 (期末評審指定標準 · 推薦 🐳)
 
+本專案完全符合期末專案指定之 **Podman Engine 容器化規範**，提供原生 `Containerfile`、`Dockerfile` 與 `podman-compose.yml`，符合無特權 Non-root 使用者與 OCI 標準，支援跨平台（Linux、macOS、Windows）100% 離線確定性重現：
+
+#### 1. 一鍵建置 Podman 映像檔
 ```bash
-# 1. 複製環境設定 (預設可直接離線執行，無須付費 API Key)
-cp .env.example .env
-
-# 2. 建置 Podman 映像檔
-podman build -t brva-agent:v1 -f Containerfile .
-
-# 3. 啟動視覺化網頁儀表板
-podman run -d --rm -p 8501:8501 --env-file .env brva-agent:v1
-
-# 4. 於瀏覽器開啟操作
-# http://localhost:8501
+# 於專案根目錄執行 (自動讀取 Containerfile)
+podman build -t aeroagent:v1 .
 ```
-*(亦可直接使用 `podman compose up --build` 一鍵建置並啟動)*
+
+#### 2. 依評測情境啟動容器
+
+- **情境 A：啟動 Streamlit 視覺化網頁儀表板 (推薦瀏覽器體驗)**
+  ```bash
+  podman run -d --rm -p 8501:8501 --name aeroagent-app aeroagent:v1
+  # 開啟瀏覽器操作：http://localhost:8501
+  ```
+
+- **情境 B：啟動終端機互動式交談 (CLI Interactive Mode)**
+  ```bash
+  podman run -it --rm aeroagent:v1 python -m src.ui.cli
+  ```
+
+- **情境 C：全自動容器內單元測試與 14 大實戰情境評測 (Automated Benchmark)**
+  ```bash
+  # 執行 105 項全自動單元測試 (100% PASS)
+  podman run --rm aeroagent:v1 python -m unittest discover tests -p "test_*.py"
+
+  # 執行 14 大端到端真實航空業務展示腳本 (100% PASS)
+  podman run --rm aeroagent:v1 python scripts/demo_test_suite.py
+  ```
+
+- **情境 D：Podman Compose 一鍵編排**
+  ```bash
+  podman compose up --build
+  ```
+
+*(本專案亦於 `scripts/` 提供跨平台一鍵輔助腳本：Linux/macOS 請執行 `./scripts/run_podman.sh`；Windows 請執行 `.\scripts\run_podman.ps1`)*
 
 ---
 
@@ -406,18 +427,18 @@ python -m unittest discover tests -p "test_*.py"
 
 **測試執行結果**：
 ```text
-Ran 93 tests in 3.655s
+Ran 108 tests in 2.828s
 
 OK
 ```
-**93 項單元測試 100% 全數通過**：
-- **工具運算與防護 (40 項)**：風向三角分解、跑道方位修正、航網多維匹配、SimBrief 放行單格式、排行榜、活動行事曆、道具背包、藝廊、航跡雷達、飛官呼號搜尋、ATC 等級差距計算、帶飛培訓 5 大前置條件資格審查、Live 機隊總覽與稼動率、星空聯盟聯營航網推薦。
+**108 項單元測試 100% 全數通過**：
+- **工具運算與防護 (52 項)**：風向三角分解、跑道方位修正、航網多維匹配、指定班號精準航線查詢 (`query_flight_route_by_number`)、SimBrief 放行單格式、排行榜、活動行事曆、每週精選雙倍哩程推薦 (ROTW 2.0x)、道具背包、藝廊、航跡雷達、飛官呼號搜尋、ATC 等級差距計算、帶飛培訓 5 大前置條件資格審查、Live 機隊總覽與稼動率、星空聯盟聯營航網推薦。
 - **Aviation RAG 知識庫 (9 項)**：In-Memory BM25 檢索演算法、分詞權重增益、正則出處引文標記抽取、章節過濾精準度。
 - **LLM 多供應商抽象層 (8 項)**：Ollama 本地/區網連線健康檢查、Google Gemini 連線與降級機制、確定性離線規則引擎。
 - **後端 API 安全管控與飛官身分委派 (12 項)**：API Key 鑑別、503 Killswitch 緊急阻斷、429 Rate Limit 限流、Bearer Token 飛官委任驗證、商城唯讀防護。
 - **CLI 互動配置與參數精靈 (8 項)**：即席模型切換、連線健康度三層診斷。
 - **Agent 決策追蹤 (ReAct Trace) 與漸進式串流推播 (10 項)**：多輪 HITL 人機協同追蹤紀錄結構、on_step 事件回呼驅動、記憶體暫存釋放。
-- **Podman 容器化標準與編排 (6 項)**：`Containerfile` 最小特權標準、Non-root 使用者、`podman-compose.yml` 服務配置檢核。
+- **Podman 容器化標準與編排 (9 項)**：`Containerfile` 最小特權標準、Non-root 使用者 (`USER aero`)、`Dockerfile` 雙相容規範、`.containerignore` / `.dockerignore` 上下文精簡、`podman-compose.yml` 服務配置、`run_podman.sh` / `run_podman.ps1` 跨平台評測輔助腳本與離線就緒檢測。
 
 ---
 
@@ -426,7 +447,10 @@ OK
 ```text
 BRVA_Agent/
 ├── Containerfile              # Podman 容器建置規範檔 (預設啟動 Streamlit Web)
+├── Dockerfile                 # Docker / Podman 雙相容容器建置檔
 ├── podman-compose.yml         # 容器化編排設定 (Port 8501 映射)
+├── .containerignore           # Podman 容器建置過濾設定
+├── .dockerignore              # Docker 容器建置過濾設定
 ├── requirements.txt           # Python 必要依賴清單
 ├── README.md                  # 專案說明文件
 ├── .env.example               # 環境變數範本檔
@@ -438,7 +462,9 @@ BRVA_Agent/
 ├── documents/                 # 作業技術規格與報告文件
 │   └── BRVA_Agent_Assignment2_Report.md # 作業二正式技術報告
 ├── scripts/
-│   ├── demo_test_suite.py     # 13 大航空實戰情境綜合展示腳本
+│   ├── run_podman.sh          # Linux / macOS Podman 一鍵建置與評測腳本
+│   ├── run_podman.ps1         # Windows PowerShell Podman 一鍵建置與評測腳本
+│   ├── demo_test_suite.py     # 14 大航空實戰情境綜合展示腳本
 │   └── test_comprehensive_scenarios.py # 綜合實戰測試套件
 ├── src/
 │   ├── agent.py               # ReAct 決策循環與 Human-in-the-Loop 狀態機

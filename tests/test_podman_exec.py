@@ -6,16 +6,21 @@ from pathlib import Path
 class TestPodmanContainerization(unittest.TestCase):
     """
     Test suite for Podman containerization standards, Containerfile integrity,
-    compose configuration, and runtime health readiness as required by Assignment 2.
+    compose configuration, helper scripts, and runtime health readiness as required by Assignment 2.
     """
 
     @classmethod
     def setUpClass(cls):
         cls.root_dir = Path(__file__).resolve().parent.parent
         cls.containerfile_path = cls.root_dir / "Containerfile"
+        cls.dockerfile_path = cls.root_dir / "Dockerfile"
         cls.compose_path = cls.root_dir / "podman-compose.yml"
+        cls.containerignore_path = cls.root_dir / ".containerignore"
+        cls.dockerignore_path = cls.root_dir / ".dockerignore"
         cls.req_path = cls.root_dir / "requirements.txt"
         cls.env_example_path = cls.root_dir / ".env.example"
+        cls.run_sh_path = cls.root_dir / "scripts" / "run_podman.sh"
+        cls.run_ps1_path = cls.root_dir / "scripts" / "run_podman.ps1"
 
     def test_containerfile_exists_and_standards(self):
         self.assertTrue(self.containerfile_path.exists(), "Containerfile must exist in project root")
@@ -34,13 +39,23 @@ class TestPodmanContainerization(unittest.TestCase):
 
         # 3. Security & environment settings
         self.assertIn("PYTHONUNBUFFERED=1", content, "Must enable unbuffered stdout for container logging")
+        self.assertIn("PYTHONPATH=/app", content, "Must configure PYTHONPATH=/app")
 
-        # 4. Correct entrypoint
+        # 4. Entrypoint / Command
         self.assertTrue(
-            'ENTRYPOINT ["python", "-m", "src.ui.cli"]' in content or
-            "src.ui.cli" in content,
-            "Default container entrypoint must start CLI interface"
+            "streamlit" in content or "src.ui.cli" in content,
+            "Container must specify web or cli entrypoint"
         )
+
+    def test_dockerfile_and_ignore_parity(self):
+        """Validates that Dockerfile, .containerignore, and .dockerignore exist for dual-engine compatibility."""
+        self.assertTrue(self.dockerfile_path.exists(), "Dockerfile must exist for dual Docker/Podman compatibility")
+        self.assertTrue(self.containerignore_path.exists(), ".containerignore must exist")
+        self.assertTrue(self.dockerignore_path.exists(), ".dockerignore must exist")
+
+        df_content = self.dockerfile_path.read_text(encoding="utf-8")
+        self.assertIn("FROM", df_content)
+        self.assertIn("USER aero", df_content)
 
     def test_podman_compose_structure(self):
         self.assertTrue(self.compose_path.exists(), "podman-compose.yml must exist")
@@ -50,6 +65,15 @@ class TestPodmanContainerization(unittest.TestCase):
         self.assertIn("8501:8501", compose_content, "Compose must expose Streamlit port 8501")
         self.assertIn("env_file:", compose_content, "Compose must link .env file")
         self.assertIn("aeroagent:v1", compose_content, "Compose must specify image tag aeroagent:v1")
+
+    def test_podman_helper_scripts(self):
+        """Ensures cross-platform execution helper scripts exist for TA / Professor."""
+        self.assertTrue(self.run_sh_path.exists(), "scripts/run_podman.sh must exist for Linux/macOS evaluation")
+        self.assertTrue(self.run_ps1_path.exists(), "scripts/run_podman.ps1 must exist for Windows evaluation")
+
+        sh_content = self.run_sh_path.read_text(encoding="utf-8")
+        self.assertIn("podman", sh_content)
+        self.assertIn("aeroagent:v1", sh_content)
 
     def test_requirements_dependencies(self):
         self.assertTrue(self.req_path.exists(), "requirements.txt must exist")
@@ -79,9 +103,18 @@ class TestPodmanContainerization(unittest.TestCase):
         cli_mod = importlib.import_module("src.ui.cli")
         self.assertTrue(hasattr(cli_mod, "main"), "src.ui.cli must have main() entrypoint")
         
-        # Verify web app file existence
         web_file = self.root_dir / "src" / "ui" / "web.py"
         self.assertTrue(web_file.exists(), "src/ui/web.py must exist for Streamlit mode")
+
+    def test_offline_container_readiness(self):
+        """Validates that the agent can initialize and run in container offline mode without API keys."""
+        from src.agent import AeroAgent
+        from src.llm import OfflineRuleProvider
+        from src.memory import AgentMemory
+
+        agent = AeroAgent(memory=AgentMemory(), llm_provider=OfflineRuleProvider())
+        resp = agent.run("你好")
+        self.assertIn("機長您好", resp)
 
 if __name__ == "__main__":
     unittest.main()
