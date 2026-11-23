@@ -1,6 +1,6 @@
 from src.tools.weather_tool import fetch_aviation_weather
 from src.tools.route_tool import query_virtual_routes, query_flight_route_by_number, find_route_by_flight_number
-from src.tools.simbrief_tool import generate_simbrief_dispatch
+from src.tools.simbrief_tool import generate_simbrief_dispatch, generate_dispatch
 from src.tools.telemetry_tool import analyze_flight_telemetry
 from src.tools.rag_tool import query_flight_sop_and_regulations
 from src.tools.user_profile_tool import query_pilot_profile, search_pilot_user
@@ -38,6 +38,7 @@ ALL_TOOLS = [
     query_codeshare_partners,
     recommend_routes_and_codeshares,
     query_flight_route_by_number,
+    generate_dispatch,
 ]
 
 TOOL_REGISTRY = {
@@ -45,6 +46,7 @@ TOOL_REGISTRY = {
     "query_virtual_routes": query_virtual_routes,
     "query_flight_route_by_number": query_flight_route_by_number,
     "generate_simbrief_dispatch": generate_simbrief_dispatch,
+    "generate_dispatch": generate_dispatch,
     "analyze_flight_telemetry": analyze_flight_telemetry,
     "query_flight_sop_and_regulations": query_flight_sop_and_regulations,
     "query_pilot_profile": query_pilot_profile,

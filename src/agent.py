@@ -11,6 +11,7 @@ from src.tools import (
     fetch_aviation_weather,
     query_virtual_routes,
     generate_simbrief_dispatch,
+    generate_dispatch,
     analyze_flight_telemetry,
     query_flight_sop_and_regulations,
     query_pilot_profile,
@@ -296,6 +297,17 @@ class BRVAAgent:
         # 1. Human-in-the-Loop (HITL) Pending Dispatch Check
         # -------------------------------------------------------------
         pending = self.memory.get_pending()
+
+        # If user explicitly specifies a different flight number, cancel the stale pending dispatch
+        flt_in_text = re.search(r'\b(BR\s*\d+|EVA\s*\d+|\b\d{1,4}\b)\b', user_text, re.IGNORECASE)
+        if flt_in_text and pending:
+            candidate_flt = flt_in_text.group(1).replace(" ", "").upper()
+            if not candidate_flt.startswith("BR") and not candidate_flt.startswith("EVA"):
+                candidate_flt = f"BR{candidate_flt}"
+            if candidate_flt != pending.flight_number.replace(" ", "").upper():
+                self.memory.clear_pending()
+                pending = None
+
         is_question = any(q in user_text for q in ["？", "?", "請問", "多少", "什麼", "怎", "幾", "如何", "哪"])
         is_explicit_dispatch = any(w in user_text for w in ["直接簽派", "幫我簽派", "確認簽派", "進行簽派", "同意簽派", "授權簽派", "確認", "發放放行單"])
         is_short_affirmative = (len(user_text) <= 15) and any(
@@ -309,15 +321,15 @@ class BRVAAgent:
                 f"偵測到機師確認簽派授權！自 Agent Memory 提取待簽派班次：{pending.flight_number} ({pending.dep_icao} 🛫 ➡️ {pending.arr_icao} 🛬, 機型: {pending.aircraft_type})"
             )
             self._add_trace_tool_call(
-                "generate_simbrief_dispatch",
-                f"generate_simbrief_dispatch(flight_number='{pending.flight_number}', dep_icao='{pending.dep_icao}', arr_icao='{pending.arr_icao}', aircraft_type='{pending.aircraft_type}')"
+                "generate_dispatch",
+                f"generate_dispatch(flight_number='{pending.flight_number}', aircraft_type='{pending.aircraft_type}')"
             )
 
-            ofp_result = generate_simbrief_dispatch(
+            ofp_result = generate_dispatch(
                 flight_number=pending.flight_number,
+                aircraft_type=pending.aircraft_type,
                 dep_icao=pending.dep_icao,
                 arr_icao=pending.arr_icao,
-                aircraft_type=pending.aircraft_type,
                 user_context=user_context
             )
 
@@ -705,38 +717,45 @@ class BRVAAgent:
             return self._finish_run(final_resp, return_trace)
 
         # -------------------------------------------------------------
-        # 1J. Direct Flight Dispatch Check (e.g. 幫我簽派 BR184, 簽派 BR3)
+        # 1J. Direct Flight Dispatch Check (e.g. 幫我簽派 BR184, 簽派 BR3, 我想要飛 BR3)
         # -------------------------------------------------------------
-        flt_match = re.search(r'(?:幫我|直接|請|立即)?(?:簽派|派飛|dispatch)\s*(?:航班)?\s*(BR\s*\d+|EVA\s*\d+|\b\d{3,4}\b)', user_text, re.IGNORECASE)
-        if flt_match and not any(q in user_text for q in ["推薦", "檢查", "查詢", "有哪些"]):
+        flt_match = re.search(r'(?:幫我|直接|請|立即|想|想要|預計|打算|計畫)?(?:簽派|派飛|dispatch|執飛|開|飛)?\s*(?:航班)?\s*(BR\s*\d+|EVA\s*\d+|\b\d{1,4}\b)', user_text, re.IGNORECASE)
+        has_flight_intent = any(w in user_text for w in ["簽派", "派飛", "dispatch", "執飛", "開", "飛", "飛往"]) or any(w in user_text for w in ["想", "想要", "幫我", "直接", "安排"])
+        if flt_match and has_flight_intent and not any(q in user_text for q in ["推薦", "檢查", "有哪些", "飛哪裡", "在哪", "是什麼", "資訊"]):
             matched_flt = flt_match.group(1).replace(" ", "").upper()
             if not matched_flt.startswith("BR") and not matched_flt.startswith("EVA"):
                 matched_flt = f"BR{matched_flt}"
 
-            # Dynamically resolve flight route from EVA Virtual database
-            route_info = find_route_by_flight_number(matched_flt)
-            if not route_info:
-                self._add_trace_thought("長榮航網查無此航班", f"在航網資料庫中未匹配到航班 {matched_flt} 之標準航線")
-                self._add_trace_observation(f"⚠️ 航網中查無 {matched_flt} 航線資料")
+            # Step 1: Query flight route first (find route information)
+            self._add_trace_thought("航班航網檢索", f"機師欲執飛 {matched_flt}，首先查詢長榮/立榮航網獲取航班之起降場站與指派機型...")
+            self._add_trace_tool_call("query_flight_route_by_number", f"query_flight_route_by_number(flight_number='{matched_flt}')")
+
+            route_res = query_flight_route_by_number(matched_flt, user_context=user_context)
+            if not route_res or route_res.get("status") != "SUCCESS":
+                self._add_trace_observation(f"⚠️ 航網中查無 {matched_flt} 航線資料", result=route_res)
                 return self._finish_run(
                     f"長官，在長榮航網資料庫中查無航班編號 **{matched_flt}**。\n\n"
                     f"請確認航班編號是否正確（例如 `BR3`、`BR184`、`BR12`、`BR315`），或直接提供起訖機場代碼（例如 `簽派 RCTP 到 RJAA`），我將立即為您安排簽派放行！",
                     return_trace
                 )
 
-            dep = route_info.get("dep")
-            arr = route_info.get("arr")
-            aircraft = route_info.get("aircraft") or "B78X"
-            matched_flt = route_info.get("flight_number") or matched_flt
+            route_dict = route_res.get("route") if isinstance(route_res.get("route"), dict) else {}
+            dep = route_res.get("dep") or route_dict.get("dep")
+            arr = route_res.get("arr") or route_dict.get("arr")
+            aircraft = route_res.get("aircraft") or route_dict.get("aircraft") or "B789"
+            matched_flt = route_res.get("flight_number") or matched_flt
 
-            self._add_trace_thought("指定航班直接簽派", f"於長榮航網資料庫中匹配到 {matched_flt}: {dep} -> {arr}，機型: {aircraft}")
-            self._add_trace_tool_call("generate_simbrief_dispatch", f"generate_simbrief_dispatch(flight_number='{matched_flt}', dep_icao='{dep}', arr_icao='{arr}', aircraft_type='{aircraft}')")
+            self._add_trace_observation(f"成功查詢到航班航線：{matched_flt} ({dep} -> {arr}，機型: {aircraft})", result=route_res)
 
-            ofp_result = generate_simbrief_dispatch(
+            # Step 2: Now that route details are known, trigger dispatch
+            self._add_trace_thought("航班放行簽派", f"已掌握 {matched_flt} 航線起訖 ({dep} 🛫 ➡️ {arr} 🛬)，指派機型 {aircraft}。調用簽派引擎生成正式飛行計畫並登錄簽派中心...")
+            self._add_trace_tool_call("generate_dispatch", f"generate_dispatch(flight_number='{matched_flt}', aircraft_type='{aircraft}', dep_icao='{dep}', arr_icao='{arr}')")
+
+            ofp_result = generate_dispatch(
                 flight_number=matched_flt,
+                aircraft_type=aircraft,
                 dep_icao=dep,
                 arr_icao=arr,
-                aircraft_type=aircraft,
                 user_context=user_context
             )
             self._last_ofp_info = ofp_result.get("simbrief_data")

@@ -3,17 +3,21 @@ from pydantic import BaseModel, Field
 from src.client import backend_client
 from src.context import UserContext
 
-class SimbriefInput(BaseModel):
-    flight_number: str = Field(..., description="航班號碼，如 'BR184'")
-    dep_icao: str = Field(..., description="起飛機場 ICAO，如 'RCTP'")
-    arr_icao: str = Field(..., description="目的地機場 ICAO，如 'RJAA'")
-    aircraft_type: str = Field("B78X", description="機型，如 'B78X'")
+class DispatchInput(BaseModel):
+    flight_number: str = Field(..., description="航班號碼，如 'BR3', 'BR184'")
+    aircraft_type: Optional[str] = Field(None, description="執電機型代碼，如 'B789', 'B78X'；若省略由後端航網自律匹配")
+    dep_icao: Optional[str] = Field(None, description="起飛機場 ICAO，非定期包機可指定；排班航班若省略由後端航網自律解析")
+    arr_icao: Optional[str] = Field(None, description="目的地機場 ICAO，非定期包機可指定；排班航班若省略由後端航網自律解析")
 
-SimbriefDispatchInput = SimbriefInput
+SimbriefInput = DispatchInput
+SimbriefDispatchInput = DispatchInput
 
-class SimbriefOutput(BaseModel):
+class DispatchOutput(BaseModel):
     status: str
     flight_number: str
+    dep_icao: Optional[str] = None
+    arr_icao: Optional[str] = None
+    aircraft_type: Optional[str] = None
     route: Optional[str] = None
     cruise_alt: Optional[str] = None
     block_fuel_kgs: Optional[int] = None
@@ -22,22 +26,60 @@ class SimbriefOutput(BaseModel):
     ofp_url: Optional[str] = None
     summary_text: str
 
-def generate_simbrief_dispatch(
+SimbriefOutput = DispatchOutput
+
+def generate_dispatch(
     flight_number: str,
-    dep_icao: str,
-    arr_icao: str,
-    aircraft_type: str = "B78X",
-    user_context: Optional[UserContext] = None
+    aircraft_type: Optional[str] = None,
+    dep_icao: Optional[str] = None,
+    arr_icao: Optional[str] = None,
+    user_context: Optional[UserContext] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     """
-    Triggers official flight dispatch and SimBrief OFP plan on behalf of the authenticated pilot.
-    If the pilot has not linked their CrewCenter account, prompts for account linking.
-    If SimBrief is not linked, confirms internal CrewCenter dispatch.
+    Abstracted flight dispatch engine.
+    Dispatches a flight on behalf of the pilot, auto-resolving origin/destination airports
+    and default aircraft from EVA Virtual flight timetable/backend if not explicitly provided.
+    Delegates to SimBrief OFP generator or CrewCenter internal dispatch.
     """
-    clean_flt = (flight_number or "").strip().toUpperCase() if hasattr(flight_number, "toUpperCase") else (flight_number or "").strip().upper()
-    clean_dep = (dep_icao or "").strip().upper()
-    clean_arr = (arr_icao or "").strip().upper()
-    clean_type = (aircraft_type or "B78X").strip().upper()
+    clean_flt = (flight_number or "").strip().upper()
+    clean_dep = (dep_icao or kwargs.get("dept") or kwargs.get("dep") or "").strip().upper()
+    clean_arr = (arr_icao or kwargs.get("dest") or kwargs.get("arr") or "").strip().upper()
+    clean_type = (aircraft_type or kwargs.get("type") or "").strip().upper()
+
+    # 0. Intelligent Auto-Resolution from Route Timetable / Database
+    if not clean_dep or not clean_arr or not clean_type or clean_type == "B78X":
+        try:
+            from src.tools.route_tool import find_route_by_flight_number
+            route_info = find_route_by_flight_number(clean_flt)
+            if route_info:
+                if not clean_dep:
+                    clean_dep = (route_info.get("dep") or "").strip().upper()
+                if not clean_arr:
+                    clean_arr = (route_info.get("arr") or "").strip().upper()
+                if not clean_type or clean_type == "B78X":
+                    clean_type = (route_info.get("aircraft") or clean_type or "B78X").strip().upper()
+        except Exception as e:
+            print(f"[simbrief_tool] Route auto-resolution warning: {e}")
+
+    # Fallback to B78X if still undetermined
+    clean_type = clean_type or "B78X"
+
+    # If flight is completely unknown and airports are missing, report clear guidance
+    if not clean_dep or not clean_arr:
+        not_found_msg = (
+            f"⚠️ 長官，在長榮航網資料庫中查無航班 **{clean_flt}** 之排班起降場站。\n"
+            f"請提供起訖機場代碼（例如 `簽派 {clean_flt} 從 RCTP 到 RJAA`），我將立即為您安排簽派放行！"
+        )
+        return {
+            "status": "ROUTE_NOT_FOUND",
+            "flight_number": clean_flt,
+            "dep_icao": clean_dep,
+            "arr_icao": clean_arr,
+            "aircraft_type": clean_type,
+            "summary": not_found_msg,
+            "summary_text": not_found_msg,
+        }
 
     # 1. Check Explicit Unauthenticated State (Guest with Context)
     if user_context is not None and (not user_context.is_authenticated or not user_context.delegation_token):
@@ -505,3 +547,22 @@ def generate_simbrief_dispatch(
         "summary_text": summary_text,
         "summary": summary_text,
     }
+
+# Backward-compatible wrapper and alias for generate_simbrief_dispatch
+def generate_simbrief_dispatch(
+    flight_number: str,
+    dep_icao: Optional[str] = None,
+    arr_icao: Optional[str] = None,
+    aircraft_type: Optional[str] = None,
+    user_context: Optional[UserContext] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    return generate_dispatch(
+        flight_number=flight_number,
+        aircraft_type=aircraft_type,
+        dep_icao=dep_icao,
+        arr_icao=arr_icao,
+        user_context=user_context,
+        **kwargs
+    )
+

@@ -214,6 +214,10 @@ def query_flight_route_by_number(flight_number: str, user_context: Optional[User
     return {
         "status": "SUCCESS",
         "flight_number": flt_disp,
+        "dep": dep,
+        "arr": arr,
+        "aircraft": ac,
+        "flight_time": ft,
         "route": route,
         "summary": summary_text,
         "summary_text": summary_text

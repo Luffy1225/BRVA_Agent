@@ -87,9 +87,11 @@ class TestRouteAndROTW(unittest.TestCase):
         self.assertIn("RCTP", resp)
         self.assertNotIn("RJAA 🛬", resp)
         tool_calls = [s for s in trace if s.get("type") == "tool_call"]
-        self.assertEqual(len(tool_calls), 1)
-        self.assertEqual(tool_calls[0].get("tool"), "generate_simbrief_dispatch")
-        call_repr = tool_calls[0].get("args") or tool_calls[0].get("content") or ""
+        self.assertEqual(len(tool_calls), 2)
+        tool_names = [s.get("tool") for s in tool_calls]
+        self.assertIn("query_flight_route_by_number", tool_names)
+        self.assertTrue(any(t in ("generate_dispatch", "generate_simbrief_dispatch") for t in tool_names))
+        call_repr = " ".join(str(s.get("args") or s.get("content") or "") for s in tool_calls)
         self.assertIn("KIAD", call_repr)
         self.assertIn("RCTP", call_repr)
         self.assertIn("B789", call_repr)
