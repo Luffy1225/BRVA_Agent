@@ -115,6 +115,8 @@ def find_route_by_flight_number(flight_number: str) -> Optional[Dict[str, Any]]:
                     "is_cargo": "cargo" in str(r_type).lower(),
                     "route_type": r_type,
                     "is_multi_leg": bool(r.get("isMultiLeg")),
+                    "route_id": r.get("id"),
+                    "fleet_id": r.get("fleetId"),
                     "source": "backend_api"
                 }
     except Exception as e:

@@ -48,19 +48,19 @@ def generate_dispatch(
     clean_type = (aircraft_type or kwargs.get("type") or "").strip().upper()
 
     # 0. Intelligent Auto-Resolution from Route Timetable / Database
-    if not clean_dep or not clean_arr or not clean_type or clean_type == "B78X":
-        try:
-            from src.tools.route_tool import find_route_by_flight_number
-            route_info = find_route_by_flight_number(clean_flt)
-            if route_info:
-                if not clean_dep:
-                    clean_dep = (route_info.get("dep") or "").strip().upper()
-                if not clean_arr:
-                    clean_arr = (route_info.get("arr") or "").strip().upper()
-                if not clean_type or clean_type == "B78X":
-                    clean_type = (route_info.get("aircraft") or clean_type or "B78X").strip().upper()
-        except Exception as e:
-            print(f"[simbrief_tool] Route auto-resolution warning: {e}")
+    route_info = None
+    try:
+        from src.tools.route_tool import find_route_by_flight_number
+        route_info = find_route_by_flight_number(clean_flt)
+        if route_info:
+            if not clean_dep:
+                clean_dep = (route_info.get("dep") or "").strip().upper()
+            if not clean_arr:
+                clean_arr = (route_info.get("arr") or "").strip().upper()
+            if not clean_type or clean_type == "B78X":
+                clean_type = (route_info.get("aircraft") or clean_type or "B78X").strip().upper()
+    except Exception as e:
+        print(f"[simbrief_tool] Route auto-resolution warning: {e}")
 
     # Fallback to B78X if still undetermined
     clean_type = clean_type or "B78X"
@@ -128,13 +128,17 @@ def generate_dispatch(
         # Step B: Register Active Dispatch in CrewCenter (/api/dispatch/active)
         # This commits the active flight into the database so CrewCenter Dashboard & Dispatch Center show it!
         active_payload = {
-            "isLive": True,
             "departureICAO": clean_dep,
             "arrivalICAO": clean_arr,
             "flightNumber": clean_flt,
             "aircraft": clean_type,
             "simbriefData": ofp_data if simbrief_linked else None
         }
+        if route_info and route_info.get("route_id"):
+            active_payload["routeId"] = route_info.get("route_id")
+        if route_info and route_info.get("fleet_id"):
+            active_payload["fleetId"] = route_info.get("fleet_id")
+
         active_res = backend_client.post(
             "/api/dispatch/active",
             json_data=active_payload,
