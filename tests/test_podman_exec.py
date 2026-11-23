@@ -87,7 +87,7 @@ class TestPodmanContainerization(unittest.TestCase):
         self.assertTrue(self.env_example_path.exists(), ".env.example must exist")
         env_content = self.env_example_path.read_text(encoding="utf-8")
 
-        expected_vars = ["GEMINI_API_KEY", "BRVA_API_BASE_URL", "BRVA_AGENT_API_KEY"]
+        expected_vars = ["GEMINI_API_KEY", "BRVA_API_BASE_URL", "OFFICIAL_TEST_TOKEN"]
         for var_name in expected_vars:
             self.assertIn(var_name, env_content, f".env.example must declare {var_name}")
 
