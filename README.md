@@ -7,14 +7,45 @@
 
 ## 快速開始
 
-### Podman 容器（推薦）
+### 0. 環境變數設定 (`.env`)
+
+本專案啟動時會自動讀取根目錄下的 **`.env`** 檔案（**⚠️ 注意檔名開頭必須包含小數點 `.`**，避免誤存為 `env` 或 `.env.txt`）。
+
+專案根目錄已提供完整範本檔 `.env.example`，可直接複製更名建立：
+
+```bash
+# Linux / macOS
+cp .env.example .env
+
+# Windows PowerShell
+Copy-Item .env.example .env
+```
+
+#### 核心環境變數清單與說明
+
+| 參數名稱 | 屬性 | 說明 | 範例 / 預設值 |
+| :--- | :---: | :--- | :--- |
+| **`GEMINI_API_KEY`** | **推薦** | Google Gemini API 金鑰，驅動 AI 思考與 Tool Calling 推理大腦 | `AIzaSy...` |
+| **`OFFICIAL_TEST_TOKEN`** | 選填 | CrewCenter 飛官授權碼 / Token，用於簽派放行、個人檔案、道具背包與商城查詢 | `ey...`（亦可寫為 `CREWCENTER_TOKEN`） |
+| **`BRVA_API_BASE_URL`** | 選填 | BRVA 後端 API 伺服器端點 | `https://api.eva-virtual.com`（預設官方正式環境） |
+| **`LLM_PROVIDER`** | 選填 | 模型引擎選型模式：`auto`（自動偵測）、`gemini`、`ollama`、`offline`（純離線） | 預設 `auto` |
+| **`OLLAMA_BASE_URL`** | 選填 | 本機或區網 Ollama 伺服器位址（供本地開源大模型使用） | `http://localhost:11434` |
+| **`OLLAMA_MODEL`** | 選填 | Ollama 執飛模型名稱 | `llama3`（可選 `qwen2.5`、`mistral` 等） |
+
+> 💡 **防禦性容錯提示**：
+> - **零金鑰亦可運行**：若未填入 `GEMINI_API_KEY`，系統自動無縫降級為 **`OfflineRuleProvider` 確定性離線規則**，公開航線檢索、METAR 氣象計算、SOP 向量知識庫與民航起降限制 100% 正常運作。
+> - **動態載入**：在 Streamlit 網頁左側側邊欄亦可直接手動輸入金鑰，或隨時點擊 **「📥 匯入 sercet」** 按鈕即時刷新套用。
+
+---
+
+### 1. Podman 容器（推薦）
 
 ```bash
 # 建置映像檔
 podman build -t aeroagent:v1 .
 
-# 啟動 Streamlit 網頁介面
-podman run -d --rm -p 8501:8501 --name aeroagent-app aeroagent:v1
+# 啟動 Streamlit 網頁介面 (掛載 .env 檔案)
+podman run -d --rm -p 8501:8501 --env-file .env --name aeroagent-app aeroagent:v1
 ```
 
 啟動後開啟瀏覽器 http://localhost:8501 即可操作。
@@ -26,7 +57,7 @@ podman run -d --rm -p 8501:8501 --name aeroagent-app aeroagent:v1
 podman run -it --rm aeroagent:v1 python -m src.ui.cli
 ```
 
-### 本機直接執行（Python 3.10+）
+### 2. 本機直接執行（Python 3.10+）
 
 ```bash
 pip install -r requirements.txt
