@@ -2,8 +2,37 @@ import os
 import time
 import html
 import json
+import inspect
 from typing import Optional, Dict, Any, List
 import streamlit as st
+
+# Streamlit 1.67+ deprecation: use_container_width is replaced with width='stretch' / 'content'
+# Provide seamless backward compatibility for older Streamlit versions without deprecation warnings
+if "width" not in inspect.signature(st.button).parameters:
+    _orig_st_button = st.button
+    def _compat_button(*args, **kwargs):
+        if "width" in kwargs:
+            w = kwargs.pop("width")
+            kwargs["use_container_width"] = (w == "stretch")
+        return _orig_st_button(*args, **kwargs)
+    st.button = _compat_button
+
+    _orig_st_link_button = st.link_button
+    def _compat_link_button(*args, **kwargs):
+        if "width" in kwargs:
+            w = kwargs.pop("width")
+            kwargs["use_container_width"] = (w == "stretch")
+        return _orig_st_link_button(*args, **kwargs)
+    st.link_button = _compat_link_button
+
+    _orig_st_image = st.image
+    def _compat_image(*args, **kwargs):
+        if "width" in kwargs:
+            w = kwargs.pop("width")
+            kwargs["use_container_width"] = (w == "stretch")
+        return _orig_st_image(*args, **kwargs)
+    st.image = _compat_image
+
 from src.agent import BRVAAgent, AeroAgent
 from src.context import UserContext
 from src.client import backend_client
@@ -152,7 +181,7 @@ with st.sidebar:
         st.button(
             "📥 匯入 sercet",
             on_click=on_import_secret_clicked,
-            use_container_width=True,
+            width="stretch",
             key="cfg_import_btn",
             help="從專案根目錄的 sercet.txt 自動載入並套用參數"
         )
@@ -160,7 +189,7 @@ with st.sidebar:
         test_clicked = st.button(
             "🔍 連線測試",
             type="primary",
-            use_container_width=True,
+            width="stretch",
             key="cfg_test_btn",
             help="依序測試 API Server、CrewCenter 飛官身分與 LLM"
         )
@@ -365,7 +394,7 @@ with st.sidebar:
                 f"• **點數餘額**：`{ctx.points:,.0f} pts`\n\n"
                 f"• **累計時數**：`{ctx.flight_time_hours:,.1f} h`"
             )
-            if st.button("🚪 切換回訪客模式 (Unlink)", use_container_width=True):
+            if st.button("🚪 切換回訪客模式 (Unlink)", width="stretch"):
                 st.session_state.user_context = UserContext()
                 st.info("已解除帳號連結，恢復訪客模式。")
                 st.rerun()
@@ -377,7 +406,7 @@ with st.sidebar:
                 key="pilot_manual_token_box",
                 help="若欲手動切換至其他飛官帳號，可在此貼入授權碼。"
             )
-            if st.button("🔗 驗證並手動連結", use_container_width=True):
+            if st.button("🔗 驗證並手動連結", width="stretch"):
                 if not token_input.strip():
                     st.error("請先輸入授權碼！")
                 else:
@@ -388,7 +417,7 @@ with st.sidebar:
                         else:
                             st.error("❌ 授權碼驗證失敗或無法連線至伺服器。")
             if top_crewcenter_token.strip():
-                if st.button("⚡ 快速連結上方金鑰框之授權碼", use_container_width=True):
+                if st.button("⚡ 快速連結上方金鑰框之授權碼", width="stretch"):
                     with st.spinner("向伺服器驗證中..."):
                         if _auto_link_pilot(top_crewcenter_token.strip()):
                             st.success("✅ 成功連結飛官帳號！")
@@ -403,7 +432,7 @@ with st.sidebar:
         "我為 Infinite Flight 的長榮虛擬航空所做的網頁，裡面包含各種社群以及遊戲內的擴充功能。\n\n"
         "點擊下方按鈕進入查看："
     )
-    st.link_button("🌐 前往 CrewCenter", "https://crewcenter.eva-virtual.com", use_container_width=True)
+    st.link_button("🌐 前往 CrewCenter", "https://crewcenter.eva-virtual.com", width="stretch")
 
     st.divider()
 
@@ -417,76 +446,76 @@ with st.sidebar:
     ])
 
     with tab_dispatch:
-        if st.button("🛫 航線推薦與起降側風分析 (RCTP ➔ RJAA)", use_container_width=True):
+        if st.button("🛫 航線推薦與起降側風分析 (RCTP ➔ RJAA)", width="stretch"):
             st.session_state.prompt_input = "我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣，推薦合適的班次，並告訴我降落時需要注意的風向風險。"
 
-        if st.button("📑 直接簽派航班 (BR184)", use_container_width=True):
+        if st.button("📑 直接簽派航班 (BR184)", width="stretch"):
             st.session_state.prompt_input = "幫我簽派 BR184 飛往成田"
 
-        if st.button("📡 查詢生效中簽派單 (Active Dispatch)", use_container_width=True):
+        if st.button("📡 查詢生效中簽派單 (Active Dispatch)", width="stretch"):
             st.session_state.prompt_input = "查詢我目前是否有生效中的簽派放行單 (Active Dispatch)？"
 
-        if st.button("🌦️ 桃園機場 (RCTP 05L) 即時天氣與側風", use_container_width=True):
+        if st.button("🌦️ 桃園機場 (RCTP 05L) 即時天氣與側風", width="stretch"):
             st.session_state.prompt_input = "幫我查一下 RCTP 05L 即時天氣與側風"
 
-        if st.button("🗺️ 星空聯盟聯營航線推薦 (ANA / Codeshare)", use_container_width=True):
+        if st.button("🗺️ 星空聯盟聯營航線推薦 (ANA / Codeshare)", width="stretch"):
             st.session_state.prompt_input = "請推薦我幾條適合執飛的 ANA 星空聯盟 Codeshare 聯營航線"
 
     with tab_sop:
-        if st.button("📖 發動機啟動順序 (2->1) 與滑行速限", use_container_width=True):
+        if st.button("📖 發動機啟動順序 (2->1) 與滑行速限", width="stretch"):
             st.session_state.prompt_input = "請問 B777 與 A321 雙發噴射客機的地面發動機啟動順序與滑行速限是多少？"
 
-        if st.button("⚠️ 術科考核重大違規一票否決條款", use_container_width=True):
+        if st.button("⚠️ 術科考核重大違規一票否決條款", width="stretch"):
             st.session_state.prompt_input = "請問術科實作考核中，哪些重大違規情事會直接觸發一票否決 (Automatic Fail)？及格門檻是多少？"
 
-        if st.button("🛡️ LIVE 機隊認領上限與事故通報時限", use_container_width=True):
+        if st.button("🛡️ LIVE 機隊認領上限與事故通報時限", width="stretch"):
             st.session_state.prompt_input = "請問 LIVE 機隊每位機師最多可以預約幾架飛機？若發生墜機事故需要在多久內通報？"
 
-        if st.button("📊 遙測黑盒子合格檢測 (sample_flight_pass.csv)", use_container_width=True):
+        if st.button("📊 遙測黑盒子合格檢測 (sample_flight_pass.csv)", width="stretch"):
             st.session_state.prompt_input = "請幫我審核 sample_flight_pass.csv 飛行黑盒子紀錄。"
 
-        if st.button("🚨 遙測黑盒子違規檢驗 (滑行超速 + 硬著陸)", use_container_width=True):
+        if st.button("🚨 遙測黑盒子違規檢驗 (滑行超速 + 硬著陸)", width="stretch"):
             st.session_state.prompt_input = "請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄。"
 
     with tab_pilot:
-        if st.button("💰 查詢個人時數點數與飛官檔案", use_container_width=True):
+        if st.button("💰 查詢個人時數點數與飛官檔案", width="stretch"):
             st.session_state.prompt_input = "幫我查我的點數與個人檔案"
 
-        if st.button("🔍 搜尋指定飛官檔案 (EVA001)", use_container_width=True):
+        if st.button("🔍 搜尋指定飛官檔案 (EVA001)", width="stretch"):
             st.session_state.prompt_input = "搜尋飛官 EVA001 的資料與飛行檔案"
 
-        if st.button("🏆 查詢全體飛官時數與點數排行榜", use_container_width=True):
+        if st.button("🏆 查詢全體飛官時數與點數排行榜", width="stretch"):
             st.session_state.prompt_input = "幫我查飛行員時數排行榜與名次"
 
-        if st.button("🎒 查看飛官背包道具庫與持有特許證 (唯讀)", use_container_width=True):
+        if st.button("🎒 查看飛官背包道具庫與持有特許證 (唯讀)", width="stretch"):
             st.session_state.prompt_input = "幫我看一下我的道具庫與持有的通行證"
 
-        if st.button("📅 查詢官方活動、大聯飛與 ROTW 雙倍航線", use_container_width=True):
+        if st.button("📅 查詢官方活動、大聯飛與 ROTW 雙倍航線", width="stretch"):
             st.session_state.prompt_input = "查詢近期官方活動、大聯飛與每週精選雙倍航線"
 
-        if st.button("📋 查詢近期歷史飛行報告 (PIREP)", use_container_width=True):
+        if st.button("📋 查詢近期歷史飛行報告 (PIREP)", width="stretch"):
             st.session_state.prompt_input = "查看我最近的飛行紀錄與落地接地垂直速度"
 
-        if st.button("🖼️ 瀏覽 CrewCenter 影音藝廊精選照片", use_container_width=True):
+        if st.button("🖼️ 瀏覽 CrewCenter 影音藝廊精選照片", width="stretch"):
             st.session_state.prompt_input = "幫我看看藝廊目前有什麼精選照片"
 
-        if st.button("🏬 查看飛官商城架上商品目錄 (唯讀安全)", use_container_width=True):
+        if st.button("🏬 查看飛官商城架上商品目錄 (唯讀安全)", width="stretch"):
             st.session_state.prompt_input = "幫我看一下商城目前架上有什麼商品"
 
     with tab_atc:
-        if st.button("🎧 查詢 ATC 管制等級與晉升差距計算", use_container_width=True):
+        if st.button("🎧 查詢 ATC 管制等級與晉升差距計算", width="stretch"):
             st.session_state.prompt_input = "查詢我的 ATC rank 與距離下一個等級還多久"
 
-        if st.button("🎓 審查 ATC Mentoring 培訓 5 大前置條件", use_container_width=True):
+        if st.button("🎓 審查 ATC Mentoring 培訓 5 大前置條件", width="stretch"):
             st.session_state.prompt_input = "檢查我是否滿足 /atc/mentoring 的培訓條件？"
 
-        if st.button("🌐 查看 LIVE 機隊總覽 (/live/overview)", use_container_width=True):
+        if st.button("🌐 查看 LIVE 機隊總覽 (/live/overview)", width="stretch"):
             st.session_state.prompt_input = "查詢 /live/overview Live 模式機隊總覽與營運狀態"
 
-        if st.button("📡 全球航跡雷達查詢線上在空班機動態", use_container_width=True):
+        if st.button("📡 全球航跡雷達查詢線上在空班機動態", width="stretch"):
             st.session_state.prompt_input = "查詢目前有哪些長榮班機在線上飛行？"
 
-        if st.button("🤝 查詢星空聯盟 Codeshare 夥伴數量與名單", use_container_width=True):
+        if st.button("🤝 查詢星空聯盟 Codeshare 夥伴數量與名單", width="stretch"):
             st.session_state.prompt_input = "長榮航空現在有幾個 codeshare 夥伴？名單有哪些航空公司？"
 
 # Main Page Notice if Gemini is selected but key is missing
@@ -702,16 +731,16 @@ def render_simbrief_ofp_card(simbrief_data: Dict[str, Any]):
     with col_left:
         st.markdown("<div style='font-size: 1.05em; font-weight: 600; color: #38bdf8; margin-bottom: 6px;'>🗺️ Navigraph 航路圖 (Route Map)</div>", unsafe_allow_html=True)
         if route_map:
-            st.image(route_map, caption=f"SimBrief Route Map · {flt} ({dep} ➔ {arr})", use_container_width=True)
+            st.image(route_map, caption=f"SimBrief Route Map · {flt} ({dep} ➔ {arr})", width="stretch")
         else:
             st.info("🗺️ 航圖生成中或暫無圖片預覽")
 
         if profile_map:
             with st.expander("📈 查看垂直巡航剖面圖 (Vertical Profile)", expanded=False):
-                st.image(profile_map, caption=f"Vertical Profile · {flt}", use_container_width=True)
+                st.image(profile_map, caption=f"Vertical Profile · {flt}", width="stretch")
 
         if pdf_url:
-            st.link_button("📄 下載 / 檢視完整 SimBrief OFP (PDF)", pdf_url, use_container_width=True)
+            st.link_button("📄 下載 / 檢視完整 SimBrief OFP (PDF)", pdf_url, width="stretch")
 
     with col_right:
         tab_fuel, tab_times, tab_weights, tab_nav = st.tabs(["⛽ 燃油規劃", "⏱️ 航程時刻", "⚖️ 配載重心", "🧭 航路環境"])
