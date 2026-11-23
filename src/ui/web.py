@@ -409,63 +409,85 @@ with st.sidebar:
 
     st.header("🛠️ 快速測試案例 (Demo Presets)")
     
-    tab_dispatch, tab_crewcenter = st.tabs(["✈️ 簽派與考核", "🌐 CrewCenter 資訊"])
+    tab_dispatch, tab_sop, tab_pilot, tab_atc = st.tabs([
+        "🛫 簽派氣象",
+        "📖 規章遙測",
+        "👨‍✈️ 飛官中心",
+        "🎙️ 航管機隊",
+    ])
 
     with tab_dispatch:
-        if st.button("🛫 RCTP -> RJAA 推薦簽派", use_container_width=True):
+        if st.button("🛫 航線推薦與起降側風分析 (RCTP ➔ RJAA)", use_container_width=True):
             st.session_state.prompt_input = "我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣，推薦合適的班次，並告訴我降落時需要注意的風向風險。"
 
         if st.button("📑 直接簽派航班 (BR184)", use_container_width=True):
             st.session_state.prompt_input = "幫我簽派 BR184 飛往成田"
 
-        if st.button("📊 黑盒子遙測超速檢測", use_container_width=True):
-            st.session_state.prompt_input = "請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄。"
+        if st.button("📡 查詢生效中簽派單 (Active Dispatch)", use_container_width=True):
+            st.session_state.prompt_input = "查詢我目前是否有生效中的簽派放行單 (Active Dispatch)？"
 
-        if st.button("📖 SOP 啟動順序與速限", use_container_width=True):
-            st.session_state.prompt_input = "請問 B777 與 A321 雙發噴射客機的地面發動機啟動順序與滑行速限是多少？"
-
-        if st.button("🌦️ 桃園機場 (RCTP) 天氣", use_container_width=True):
+        if st.button("🌦️ 桃園機場 (RCTP 05L) 即時天氣與側風", use_container_width=True):
             st.session_state.prompt_input = "幫我查一下 RCTP 05L 即時天氣與側風"
 
-    with tab_crewcenter:
-        if st.button("🏆 查詢時數與點數排行榜", use_container_width=True):
-            st.session_state.prompt_input = "幫我查飛行員時數排行榜與名次"
+        if st.button("🗺️ 星空聯盟聯營航線推薦 (ANA / Codeshare)", use_container_width=True):
+            st.session_state.prompt_input = "請推薦我幾條適合執飛的 ANA 星空聯盟 Codeshare 聯營航線"
 
-        if st.button("🎒 查看我的背包道具庫 (唯讀)", use_container_width=True):
-            st.session_state.prompt_input = "幫我看一下我的道具庫與持有的通行證"
+    with tab_sop:
+        if st.button("📖 發動機啟動順序 (2->1) 與滑行速限", use_container_width=True):
+            st.session_state.prompt_input = "請問 B777 與 A321 雙發噴射客機的地面發動機啟動順序與滑行速限是多少？"
 
-        if st.button("📅 查詢官方活動與行事曆", use_container_width=True):
-            st.session_state.prompt_input = "查詢近期官方活動、大聯飛與每週精選航線"
+        if st.button("⚠️ 術科考核重大違規一票否決條款", use_container_width=True):
+            st.session_state.prompt_input = "請問術科實作考核中，哪些重大違規情事會直接觸發一票否決 (Automatic Fail)？及格門檻是多少？"
 
-        if st.button("📡 查看即時在空班機雷達", use_container_width=True):
-            st.session_state.prompt_input = "查詢目前有哪些長榮班機在線上飛行？"
+        if st.button("🛡️ LIVE 機隊認領上限與事故通報時限", use_container_width=True):
+            st.session_state.prompt_input = "請問 LIVE 機隊每位機師最多可以預約幾架飛機？若發生墜機事故需要在多久內通報？"
 
-        if st.button("📋 查詢個人歷史飛行報告", use_container_width=True):
-            st.session_state.prompt_input = "查看我最近的飛行紀錄與落地接地垂直速度"
+        if st.button("📊 遙測黑盒子合格檢測 (sample_flight_pass.csv)", use_container_width=True):
+            st.session_state.prompt_input = "請幫我審核 sample_flight_pass.csv 飛行黑盒子紀錄。"
 
-        if st.button("🖼️ 瀏覽影音藝廊精選照片", use_container_width=True):
-            st.session_state.prompt_input = "幫我看看藝廊目前有什麼精選照片"
+        if st.button("🚨 遙測黑盒子違規檢驗 (滑行超速 + 硬著陸)", use_container_width=True):
+            st.session_state.prompt_input = "請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄。"
 
-        if st.button("🏬 查看商城上架商品目錄", use_container_width=True):
-            st.session_state.prompt_input = "幫我看一下商城目前架上有什麼商品"
-
-        if st.button("💰 查詢點數餘額與個人檔案", use_container_width=True):
+    with tab_pilot:
+        if st.button("💰 查詢個人時數點數與飛官檔案", use_container_width=True):
             st.session_state.prompt_input = "幫我查我的點數與個人檔案"
 
-        if st.button("🔍 搜尋飛官帳號與呼號 (EVA001)", use_container_width=True):
+        if st.button("🔍 搜尋指定飛官檔案 (EVA001)", use_container_width=True):
             st.session_state.prompt_input = "搜尋飛官 EVA001 的資料與飛行檔案"
 
-        if st.button("🎧 查詢 ATC 管制等級與晉升差距", use_container_width=True):
+        if st.button("🏆 查詢全體飛官時數與點數排行榜", use_container_width=True):
+            st.session_state.prompt_input = "幫我查飛行員時數排行榜與名次"
+
+        if st.button("🎒 查看飛官背包道具庫與持有特許證 (唯讀)", use_container_width=True):
+            st.session_state.prompt_input = "幫我看一下我的道具庫與持有的通行證"
+
+        if st.button("📅 查詢官方活動、大聯飛與 ROTW 雙倍航線", use_container_width=True):
+            st.session_state.prompt_input = "查詢近期官方活動、大聯飛與每週精選雙倍航線"
+
+        if st.button("📋 查詢近期歷史飛行報告 (PIREP)", use_container_width=True):
+            st.session_state.prompt_input = "查看我最近的飛行紀錄與落地接地垂直速度"
+
+        if st.button("🖼️ 瀏覽 CrewCenter 影音藝廊精選照片", use_container_width=True):
+            st.session_state.prompt_input = "幫我看看藝廊目前有什麼精選照片"
+
+        if st.button("🏬 查看飛官商城架上商品目錄 (唯讀安全)", use_container_width=True):
+            st.session_state.prompt_input = "幫我看一下商城目前架上有什麼商品"
+
+    with tab_atc:
+        if st.button("🎧 查詢 ATC 管制等級與晉升差距計算", use_container_width=True):
             st.session_state.prompt_input = "查詢我的 ATC rank 與距離下一個等級還多久"
 
-        if st.button("🎓 檢查 ATC Mentoring 受訓資格", use_container_width=True):
+        if st.button("🎓 審查 ATC Mentoring 培訓 5 大前置條件", use_container_width=True):
             st.session_state.prompt_input = "檢查我是否滿足 /atc/mentoring 的培訓條件？"
 
         if st.button("🌐 查看 LIVE 機隊總覽 (/live/overview)", use_container_width=True):
             st.session_state.prompt_input = "查詢 /live/overview Live 模式機隊總覽與營運狀態"
 
-        if st.button("🤝 查詢 Codeshare 夥伴與聯營航線", use_container_width=True):
-            st.session_state.prompt_input = "長榮航空現在有幾個 codeshare 夥伴？推薦幾條 ANA 聯營航線"
+        if st.button("📡 全球航跡雷達查詢線上在空班機動態", use_container_width=True):
+            st.session_state.prompt_input = "查詢目前有哪些長榮班機在線上飛行？"
+
+        if st.button("🤝 查詢星空聯盟 Codeshare 夥伴數量與名單", use_container_width=True):
+            st.session_state.prompt_input = "長榮航空現在有幾個 codeshare 夥伴？名單有哪些航空公司？"
 
 # Main Page Notice if Gemini is selected but key is missing
 if config.LLM_PROVIDER == "gemini" and (not config.GEMINI_API_KEY or "your_gemini" in config.GEMINI_API_KEY):

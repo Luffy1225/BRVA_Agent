@@ -182,7 +182,69 @@ def run_e2e_tests():
     assert "僅供查閱" in resp_8 or "手動點選購買" in resp_8, "應嚴格標註唯讀禁止購買免責聲明"
     print("\n✅ [PASS] 8. 飛官商城目錄查詢正常，且嚴格落實唯讀防護！")
 
-    separator("🎉 全部 8 大測試情境 100% 通過！ReAct + 7大工具 + 官方規章 RAG + 飛官身分委託完全正常！")
+    # -------------------------------------------------------------
+    # 測試情境九：飛官呼號與名冊檢索 (search_pilot_user)
+    # -------------------------------------------------------------
+    separator("測試 9：飛官名冊與呼號檢索 (search_pilot_user)")
+    prompt_9 = "搜尋飛官 EVA001 的資料與飛行檔案"
+    print(f"🧑 飛官提問: {prompt_9}\n")
+    resp_9 = agent.run(prompt_9, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_9}")
+    assert "EVA001" in resp_9, "應找到 EVA001 飛官"
+    print("\n✅ [PASS] 9. 飛官名冊與呼號檢索成功！")
+
+    # -------------------------------------------------------------
+    # 測試情境十：ATC 管制等級與晉升差距計算 (query_atc_status)
+    # -------------------------------------------------------------
+    separator("測試 10：ATC 管制等級與晉升差距計算 (query_atc_status)")
+    prompt_10 = "查詢我的 ATC rank 與距離下一個等級還多久"
+    print(f"🧑 管制員提問: {prompt_10}\n")
+    resp_10 = agent.run(prompt_10, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_10}")
+    assert "航管等級" in resp_10 or "ATC Status" in resp_10, "應包含航管等級資訊"
+    assert "%" in resp_10, "應計算達成率百分比"
+    print("\n✅ [PASS] 10. ATC 等級與晉升差距計算成功！")
+
+    # -------------------------------------------------------------
+    # 測試情境十一：ATC Mentoring 帶飛培訓 5 大前置條件審查 (query_atc_mentoring_eligibility)
+    # -------------------------------------------------------------
+    separator("測試 11：ATC Mentoring 培訓 5 大前置條件資格審查 (query_atc_mentoring_eligibility)")
+    prompt_11 = "檢查我是否滿足 /atc/mentoring 的培訓條件？"
+    print(f"🧑 申請學員提問: {prompt_11}\n")
+    resp_11 = agent.run(prompt_11, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_11}")
+    assert "mentoring" in resp_11.lower() or "培訓" in resp_11, "應審核帶飛培訓條件"
+    print("\n✅ [PASS] 11. ATC Mentoring 培訓條件審核成功！")
+
+    # -------------------------------------------------------------
+    # 測試情境十二：Live 模式全機隊營運總覽 (query_live_overview)
+    # -------------------------------------------------------------
+    separator("測試 12：Live 模式全機隊營運總覽與稼動率 (query_live_overview)")
+    prompt_12 = "查詢 /live/overview Live 模式機隊總覽與營運狀態"
+    print(f"🧑 簽派主管提問: {prompt_12}\n")
+    resp_12 = agent.run(prompt_12, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_12}")
+    assert "live" in resp_12.lower() or "在空" in resp_12, "應包含機隊總覽資訊"
+    print("\n✅ [PASS] 12. Live 機隊營運總覽檢索成功！")
+
+    # -------------------------------------------------------------
+    # 測試情境十三：星空聯盟 Codeshare 夥伴與聯營航線推薦 (query_codeshare_partners & recommend_routes_and_codeshares)
+    # -------------------------------------------------------------
+    separator("測試 13：星空聯盟 Codeshare 夥伴與聯營航線推薦 (Codeshares & Routes)")
+    prompt_13_1 = "長榮航空現在有幾個 codeshare 合作夥伴？有哪些航空公司？"
+    print(f"🧑 飛官提問: {prompt_13_1}\n")
+    resp_13_1 = agent.run(prompt_13_1, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_13_1}")
+    assert "Codeshare" in resp_13_1 or "星空聯盟" in resp_13_1 or "全日空" in resp_13_1, "應包含夥伴航司資訊"
+
+    prompt_13_2 = "請推薦我幾條適合執飛的 ANA 星空聯盟 Codeshare 聯營航線"
+    print(f"🧑 飛官提問: {prompt_13_2}\n")
+    resp_13_2 = agent.run(prompt_13_2, user_context=auth_pilot, verbose=True)
+    print(f"\n🤖 Agent 回應:\n{resp_13_2}")
+    assert "推薦" in resp_13_2 or "NH" in resp_13_2 or "ANA" in resp_13_2, "應包含推薦航線"
+    print("\n✅ [PASS] 13. 星空聯盟夥伴與聯營航線推薦成功！")
+
+    separator("🎉 全部 13 大測試情境 100% 通過！ReAct + 21大專業工具 + 官方規章 RAG + CrewCenter 擴充工具鏈完全正常！")
 
 if __name__ == "__main__":
     run_e2e_tests()

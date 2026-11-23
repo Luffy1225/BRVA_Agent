@@ -66,99 +66,211 @@ python -m streamlit run src/ui/web.py
 
 ---
 
-## 二、 15 大專業航空工具定義 (Tool Definitions)
+## 二、 21 大專業航空與 CrewCenter 工具定義 (Tool Definitions)
 
-系統實作了 15 大專業確定性工具，全數以強型別定義輸入/輸出 Schema 並具備完整的邊界防禦與降級機制：
+系統實作了 21 大專業確定性工具，涵蓋「飛行簽派與航電運算」、「官方規章 RAG 與黑盒子遙測」、「CrewCenter 飛官社群與營運」、「ATC 航管與帶飛培訓」及「星空聯盟機隊與聯營航網」五大領域。全數以強型別定義輸入/輸出 Schema，具備嚴格邊界防禦與離線降級機制：
 
-### 1. `fetch_aviation_weather`
+### 🛫 類別一：飛行簽派與航電氣象工具 (Flight Operations & Dispatch)
+
+#### 1. `fetch_aviation_weather`
 - **目的**：查詢指定機場即時航空氣象 (METAR)，動態計算指定跑道之正逆風與側風分量，評估民航適航限制 (側風 ≤ 30 節)。
-- **輸入**：`icao: str` (4 碼機場代號)、`runway: Optional[str]` (跑道編號，如 "16R")。
+- **輸入**：`icao: str` (4 碼機場代號，如 "RCTP")、`runway: Optional[str]` (跑道編號，如 "05L")。
 - **輸出**：`raw_metar`、`wind_dir`、`wind_speed_kts`、`crosswind_kts`、`headwind_kts`、`is_safe`、`risk_assessment`。
 - **錯誤處理**：以正則表達式 `^[A-Z]{4}$` 阻斷非法代碼；連線逾時自動降級載入本地歷史典型氣象快取。
+- **💬 快速測試範例**：`"幫我查一下 RCTP 05L 即時天氣與側風"`
 
-### 2. `query_virtual_routes`
+#### 2. `query_virtual_routes`
 - **目的**：檢索長榮/立榮航空內部真實虛擬航網，媒合推薦執飛班次、機型與預估航程時長。
 - **輸入**：`dep_icao: str`、`arr_icao: str`、`aircraft_type: Optional[str]`。
 - **輸出**：符合條件之航班陣列（班號、起降場、預估時長、機型、是否為貨機）。
 - **錯誤處理**：若指定機型查無班次自動放寬限制；若後端離線自動回退讀取本地備用航網資料庫。
+- **💬 快速測試範例**：`"我想從桃園 RCTP 飛往成田 RJAA，開 B78X，有什麼推薦航班？"`
 
-### 3. `generate_simbrief_dispatch`
+#### 3. `generate_simbrief_dispatch`
 - **目的**：結合飛官授權向 SimBrief 生成正式 OFP 放行單，並將簽派紀錄寫入 CrewCenter 後端資料庫。
 - **輸入**：`flight_number: str`、`dep_icao: str`、`arr_icao: str`、`aircraft_type: str`、`user_context: Optional[UserContext]`。
 - **輸出**：`status`、`route`、`cruise_altitude`、`block_fuel_kgs`、`summary`。
 - **錯誤處理**：未授權訪客回傳登入提示；若飛官尚未綁定 SimBrief，回傳保留提示與綁定引導；伺服器斷線自動啟用確定性離線放行引擎。
+- **💬 快速測試範例**：`"幫我簽派 BR184 飛往成田"` 或人機協同授權 `"好的，幫我直接簽派！"`
 
-### 4. `query_active_dispatch`
+#### 4. `query_active_dispatch`
 - **目的**：查詢飛官當前已生成且生效中的簽派放行單 (Active Dispatch) 狀態與詳細參數。
 - **輸入**：`user_context: Optional[UserContext]` (需驗證身分)。
 - **輸出**：`has_active_dispatch`、`dispatch` (航班編號、航段、機型、Block Fuel、備降場)。
 - **錯誤處理**：未授權時提示登入；若無有效簽派，給予說明並引導發起新簽派任務。
+- **💬 快速測試範例**：`"查詢我目前是否有生效中的簽派放行單 (Active Dispatch)？"`
 
-### 5. `query_flight_sop_and_regulations`
-- **目的**：檢索長榮虛擬航空官方 SOP、Live 機隊規章與術科檢定手冊之 RAG 知識庫。
+---
+
+### 📚 類別二：官方規章 RAG 與黑盒子審查工具 (Regulations & Telemetry)
+
+#### 5. `query_flight_sop_and_regulations`
+- **目的**：檢索長榮虛擬航空官方 SOP、Live 機隊規章與術科檢定手冊之 RAG 知識庫，標註出處章節。
 - **輸入**：`query: str` (自然語言提問)、`top_k: int` (預設 3)、`category: Optional[str]`。
 - **輸出**：`direct_answer` (含權威出處引文標籤之綜合摘要)、`top_chunks` (命中段落清單)。
 - **錯誤處理**：採用純記憶體 In-Memory BM25 檢索，零外部資料庫依賴；查無資料時友善引導。
+- **💬 快速測試範例**：
+  - SOP 速限：`"請問 B777 與 A321 雙發噴射客機的地面發動機啟動順序與滑行速限是多少？"`
+  - 考核失格：`"請問術科實作考核中，哪些重大違規情事會直接觸發一票否決 (Automatic Fail)？"`
+  - 機隊規章：`"請問 LIVE 機隊每位機師最多可以預約幾架飛機？若發生墜機事故需要在多久內通報？"`
 
-### 6. `query_pilot_profile`
-- **目的**：透過飛官授權之 Scoped Delegation Token 查詢個人時數、點數、官階與駐紮樞紐。
-- **輸入**：`query_type: Optional[str]` ("summary", "points", "hours", "rank")、`user_context: Optional[UserContext]`。
-- **輸出**：`callsign`、`rank_name`、`points`、`flight_time_hours`、`current_location`、`summary`。
-- **錯誤處理**：未提供有效飛官身分時嚴格阻擋，防止個資洩漏。
-
-### 7. `query_store_catalog`
-- **目的**：查詢 CrewCenter 飛官商城架上特許證、增益道具與兌換商品（🔒 嚴格唯讀）。
-- **輸入**：`user_context: Optional[UserContext]`。
-- **輸出**：`items` (商品清單)、`current_points`、`can_purchase` (固定 False)、`summary`。
-- **錯誤處理**：程序層鎖定 `can_purchase = False`，強制附帶唯讀免責聲明，杜絕 Prompt Injection 惡意代購。
-
-### 8. `query_leaderboard`
-- **目的**：查詢長榮虛擬航空全員榮譽排行榜（飛官時數/點數/接地率，或航管管制作業時數）及個人排名。
-- **輸入**：`category: Optional[str]` ("pilot" / "atc")、`sort_by: Optional[str]`、`days: Optional[str]`、`user_context`。
-- **輸出**：`top_users` 前 10 名成員數據、`my_rank` 個人名次。
-- **錯誤處理**：非法參數自動正規化為安全預設值；後端未回應時由記憶體快取降級展示。
-
-### 9. `query_calendar_events`
-- **目的**：檢索官方活動行事曆，掌握近期官方大聯飛、活動時間、主辦人與個人報名狀態。
-- **輸入**：`limit: Optional[int]` (預設 5)、`include_rotw: Optional[bool]`、`user_context`。
-- **輸出**：`events` 活動陣列 (名稱、起訖時間、主辦方、是否已報名 `is_joined`)。
-- **錯誤處理**：防禦性時間解析支援 UTC 與本地時區；後端離線時由活動快訊回退。
-
-### 10. `query_events_and_rotw`
-- **目的**：便捷查詢當週生效之每週精選雙倍哩程航線 (ROTW) 與近期大聯飛活動。
-- **輸入**：`user_context: Optional[UserContext]`。
-- **輸出**：當週 ROTW 精選航線清單與活動概要。
-- **錯誤處理**：同 `query_calendar_events`。
-
-### 11. `query_pilot_inventory`
-- **目的**：查詢已授權飛官個人背包與道具庫（特許通行證、加倍卡、主題塗裝）。🔒 嚴格唯讀。
-- **輸入**：`category: Optional[str]` ("all", "tickets", "props", "themes")、`user_context`。
-- **輸出**：通行證數量、道具清單、外觀收藏。
-- **錯誤處理**：未登入時安全阻擋；程式保證無任何扣除或消耗道具之 Mutation 端點。
-
-### 12. `query_media_gallery`
-- **目的**：檢視 CrewCenter 影音藝廊之社群航空攝影作品、精選照片與獲讚數。
-- **輸入**：`category: Optional[str]`、`featured_only: Optional[bool]`、`limit: Optional[int]`、`user_context`。
-- **輸出**：作品標題、作者呼號、機型、愛心數、檢視連結。
-- **錯誤處理**：網路中斷時由精選特刊快取回退。
-
-### 13. `query_live_radar_and_tracker`
-- **目的**：查詢全球航跡雷達 (EVA Tracker) 與 Infinite Flight 在空班機即時位置、高度、地速與管制席位。
-- **輸入**：`callsign: Optional[str]`、`icao: Optional[str]`、`user_context`。
-- **輸出**：在空班機座標、高度、速度、航向、航電計畫。
-- **錯誤處理**：呼號自動模糊正規化（去除空白與連字號）；查無在空時友善告知。
-
-### 14. `query_pilot_pireps`
-- **目的**：查詢已授權飛官個人近期飛行報告 (PIREP) 歷史紀錄、落地垂直速度與核准狀態。
-- **輸入**：`limit: Optional[int]` (預設 5)、`user_context`。
-- **輸出**：飛行報告清單（班號、航段、機型、落地垂直速度、核准狀態）。
-- **錯誤處理**：未授權時提示登入；若資料未展開自動發起子查詢補齊。
-
-### 15. `analyze_flight_telemetry`
+#### 6. `analyze_flight_telemetry`
 - **目的**：以 Pandas 演算法逐秒檢測飛行黑盒子時序紀錄，杜絕純 LLM 數值比對誤差。
 - **輸入**：`file_path: str` (CSV 遙測檔案路徑)、`aircraft_type: str`。
 - **輸出**：`is_passed`、`score`、`touchdown_g`、違規時間戳記清單。
 - **錯誤處理**：檢查檔案路徑與欄位完整性；實作 2 秒滑動視窗防護排除短暫陣風雜訊。
+- **💬 快速測試範例**：
+  - 合格審核：`"請幫我審核 sample_flight_pass.csv 飛行黑盒子紀錄。"`
+  - 違規揪錯：`"請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄。"`
+
+---
+
+### 👨‍✈️ 類別三：CrewCenter 飛官社群與營運工具 (Pilot Community & Operations)
+
+#### 7. `query_pilot_profile`
+- **目的**：透過飛官授權之 Scoped Delegation Token 查詢個人時數、點數、官階與駐紮樞紐。
+- **輸入**：`query_type: Optional[str]` ("summary", "points", "hours", "rank")、`user_context: Optional[UserContext]`。
+- **輸出**：`callsign`、`rank_name`、`points`、`flight_time_hours`、`current_location`、`summary`。
+- **錯誤處理**：未提供有效飛官身分時嚴格阻擋，防止個資洩漏。
+- **💬 快速測試範例**：`"幫我查我的點數與個人檔案"` 或 `"查詢我的累計飛行時數與會員等級"`
+
+#### 8. `search_pilot_user`
+- **目的**：依長榮呼號 (Callsign 如 EVA001, EVA495BR) 或使用者名稱模糊搜尋特定飛官名冊與飛行履歷。
+- **輸入**：`keyword: str` (呼號、使用者名稱或 IF 名稱)、`user_context: Optional[UserContext]`。
+- **輸出**：`count`、`users` (呼號、名稱、官階、總時數、架次、ATC 等級)、`summary`。
+- **錯誤處理**：關鍵字為空時提示輸入；後端離線時由本地代表性飛官名冊快取回退。
+- **💬 快速測試範例**：`"搜尋飛官 EVA001 的資料與飛行檔案"` 或 `"幫我找呼號 EVA495BR 的機長"`
+
+#### 9. `query_store_catalog`
+- **目的**：查詢 CrewCenter 飛官商城架上特許證、增益道具與兌換商品（🔒 嚴格唯讀安全邊界）。
+- **輸入**：`user_context: Optional[UserContext]`。
+- **輸出**：`items` (商品清單)、`current_points`、`can_purchase` (固定 False)、`summary`。
+- **錯誤處理**：程序層鎖定 `can_purchase = False`，強制附帶唯讀免責聲明，杜絕 Prompt Injection 惡意代購。
+- **💬 快速測試範例**：`"幫我看一下商城目前架上有什麼商品"`
+
+#### 10. `query_leaderboard`
+- **目的**：查詢長榮虛擬航空全員榮譽排行榜（飛官時數/點數/接地率，或航管管制作業時數）及個人排名。
+- **輸入**：`category: Optional[str]` ("pilot" / "atc")、`sort_by: Optional[str]`、`days: Optional[str]`、`user_context`。
+- **輸出**：`top_users` 前 10 名成員數據、`my_rank` 個人名次。
+- **錯誤處理**：非法參數自動正規化為安全預設值；後端未回應時由記憶體快取降級展示。
+- **💬 快速測試範例**：`"幫我查飛行員時數排行榜與名次"`
+
+#### 11. `query_calendar_events`
+- **目的**：檢索官方活動行事曆，掌握近期官方大聯飛、活動時間、主辦人與個人報名狀態。
+- **輸入**：`limit: Optional[int]` (預設 5)、`include_rotw: Optional[bool]`、`user_context`。
+- **輸出**：`events` 活動陣列 (名稱、起訖時間、主辦方、是否已報名 `is_joined`)。
+- **錯誤處理**：防禦性時間解析支援 UTC 與本地時區；後端離線時由活動快訊回退。
+- **💬 快速測試範例**：`"查詢近期官方活動與行事曆"`
+
+#### 12. `query_events_and_rotw`
+- **目的**：便捷查詢當週生效之每週精選雙倍哩程航線 (ROTW) 與近期大聯飛活動。
+- **輸入**：`user_context: Optional[UserContext]`。
+- **輸出**：當週 ROTW 精選航線清單與活動概要。
+- **錯誤處理**：同 `query_calendar_events`。
+- **💬 快速測試範例**：`"查詢近期官方活動、大聯飛與每週精選雙倍航線"`
+
+#### 13. `query_pilot_inventory`
+- **目的**：查詢已授權飛官個人背包與道具庫（特許通行證、加倍卡、主題塗裝）。🔒 嚴格唯讀。
+- **輸入**：`category: Optional[str]` ("all", "tickets", "props", "themes")、`user_context`。
+- **輸出**：通行證數量、道具清單、外觀收藏。
+- **錯誤處理**：未登入時安全阻擋；程式保證無任何扣除或消耗道具之 Mutation 端點。
+- **💬 快速測試範例**：`"幫我看一下我的道具庫與持有的通行證"`
+
+#### 14. `query_media_gallery`
+- **目的**：檢視 CrewCenter 影音藝廊之社群航空攝影作品、精選照片與獲讚數。
+- **輸入**：`category: Optional[str]`、`featured_only: Optional[bool]`、`limit: Optional[int]`、`user_context`。
+- **輸出**：作品標題、作者呼號、機型、愛心數、檢視連結。
+- **錯誤處理**：網路中斷時由精選特刊快取回退。
+- **💬 快速測試範例**：`"幫我看看藝廊目前有什麼精選照片"`
+
+#### 15. `query_pilot_pireps`
+- **目的**：查詢已授權飛官個人近期飛行報告 (PIREP) 歷史紀錄、落地垂直速度與核准狀態。
+- **輸入**：`limit: Optional[int]` (預設 5)、`user_context`。
+- **輸出**：飛行報告清單（班號、航段、機型、落地垂直速度、核准狀態）。
+- **錯誤處理**：未授權時提示登入；若資料未展開自動發起子查詢補齊。
+- **💬 快速測試範例**：`"查看我最近的飛行紀錄與落地接地垂直速度"`
+
+---
+
+### 🎙️ 類別四：ATC 航管服務與帶飛培訓工具 (Air Traffic Control & Mentoring)
+
+#### 16. `query_atc_status`
+- **目的**：查詢管制員當前 ATC 等級、執勤時數與管制作業架次，並精準計算距離晉升下一階管制員之剩餘差距 (Gap Analytics) 與達成率。
+- **輸入**：`user_context: Optional[UserContext]`。
+- **輸出**：`current_rank`、`next_rank`、`duty_hours`、`operations`、`progress_percent`、`duty_hours_remaining`、`operations_remaining`、`summary`。
+- **錯誤處理**：若已達最高 Examiner 階級，提示已達最高等級；連線失敗自動採用本地管制梯隊模型計算。
+- **💬 快速測試範例**：`"查詢我的 ATC rank 與距離下一個等級還多久"` 或 `"我的航管執勤時數還差多少可以晉升？"`
+
+#### 17. `query_atc_mentoring_eligibility`
+- **目的**：嚴格依據 CrewCenter `/atc/mentoring` 機制，評估機師是否具備申請 ATC 帶飛培訓之「5 大必要前置條件」（銀卡以上、執勤滿 1hr、作業達 50 次、個人積分 3,000 點、綁定 IF 帳號）。
+- **輸入**：`user_context: Optional[UserContext]`。
+- **輸出**：`can_apply`、`current_role` (visitor/trainee/mentor)、`criteria` (5 項檢驗細節)、`summary`。
+- **錯誤處理**：條列未達標之具體差距；未綁定 IF 時給予指引。
+- **💬 快速測試範例**：`"檢查我是否滿足 /atc/mentoring 的培訓條件？"`
+
+---
+
+### 🌐 類別五：星空聯盟機隊與聯營航網工具 (Alliance Codeshare & Live Overview)
+
+#### 18. `query_live_overview`
+- **目的**：查詢 CrewCenter `/live/overview` 模式之全機隊營運總覽，包括在空 (Airborne)、地面 (On-Ground)、檢修 (Maintenance) 數量、全機隊即時稼動率，以及在空巡航航機動態清單。
+- **輸入**：`user_context: Optional[UserContext]`。
+- **輸出**：`total_fleet`、`airborne_count`、`ground_count`、`maintenance_count`、`utilization_rate`、`in_flight_flights`、`summary`。
+- **錯誤處理**：後端未回應時由機隊典型離線快照回退。
+- **💬 快速測試範例**：`"查詢 /live/overview Live 模式機隊總覽與營運狀態"` 或 `"現在 live 模式有幾架飛機在空中？"`
+
+#### 19. `query_live_radar_and_tracker`
+- **目的**：查詢全球航跡雷達 (EVA Tracker) 與 Infinite Flight 在空長榮班機即時位置、巡航高度、對地空速與管制席位。
+- **輸入**：`callsign: Optional[str]`、`icao: Optional[str]`、`user_context: Optional[UserContext]`。
+- **輸出**：在空班機座標、高度、速度、航向、航電計畫。
+- **錯誤處理**：呼號自動模糊正規化（去除空白與連字號）；查無在空時友善告知。
+- **💬 快速測試範例**：`"查詢目前有哪些長榮班機在線上飛行？"` 或 `"雷達追蹤 EVA001 班機目前飛到哪裡？"`
+
+#### 20. `query_codeshare_partners`
+- **目的**：查詢長榮虛擬航空星空聯盟 (Star Alliance) 聯營 Codeshare 夥伴航空公司總數與詳細名單（全日空 ANA、新加坡航空 SQ、聯合航空 UA、韓亞航空 OZ、土耳其航空 TK 等）。
+- **輸入**：`user_context: Optional[UserContext]`。
+- **輸出**：`total_codeshare_partners`、`partners` (代碼、名稱、國家、樞紐)、`summary`。
+- **錯誤處理**：連線中斷自動載入星空聯盟官方合作航司標準名冊。
+- **💬 快速測試範例**：`"長榮航空現在有幾個 codeshare 夥伴？名單有哪些航空公司？"`
+
+#### 21. `recommend_routes_and_codeshares`
+- **目的**：智慧推薦合適執飛之精選航線，支援依星空聯盟夥伴航司（如 `ANA`、`SQ`、`UA`）或航線分類（`codeshare` 聯營、`long` 長程、`short` 短程、`cargo` 貨運、`popular` 熱門）篩選。
+- **輸入**：`category: Optional[str]`、`airline: Optional[str]`、`dep_icao: Optional[str]`、`arr_icao: Optional[str]`、`user_context: Optional[UserContext]`。
+- **輸出**：`recommended_count`、`routes` (班號、起降場、推薦機型、航程時長)、`summary`。
+- **錯誤處理**：查無特定條件時自動擴展為熱門精選航線推薦。
+- **💬 快速測試範例**：`"請推薦我幾條適合執飛的 ANA 星空聯盟 Codeshare 聯營航線"` 或 `"推薦幾條熱門長程航線"`
+
+---
+
+### 🛠️ 快速測試案例預設集對照表 (Demo Presets Quick Reference)
+
+為方便評審與飛官快速驗證所有 21 大工具呼叫，Streamlit 視覺化網頁介面已在左側側邊欄整合「🛠️ 快速測試案例 (Demo Presets)」面板，劃分為 4 大標籤頁，每顆按鈕均對應明確的航空情境與 Tool Call：
+
+| 分頁標籤 | 快速按鈕名稱 | 自然語言 Prompt 範例 | 觸發工具調用 (Tool Call) |
+| :--- | :--- | :--- | :--- |
+| **🛫 簽派氣象** | 🛫 航線推薦與起降側風分析 | `我目前在桃園 (RCTP)，預計開 B78X 飛往成田 (RJAA)，請幫我檢查目的地天氣...` | `query_virtual_routes` + `fetch_aviation_weather` |
+| **🛫 簽派氣象** | 📑 直接簽派航班 (BR184) | `幫我簽派 BR184 飛往成田` | `generate_simbrief_dispatch` |
+| **🛫 簽派氣象** | 📡 查詢生效中簽派單 | `查詢我目前是否有生效中的簽派放行單 (Active Dispatch)？` | `query_active_dispatch` |
+| **🛫 簽派氣象** | 🌦️ 桃園機場即時氣象與側風 | `幫我查一下 RCTP 05L 即時天氣與側風` | `fetch_aviation_weather` |
+| **🛫 簽派氣象** | 🗺️ 星空聯盟聯營航線推薦 | `請推薦我幾條適合執飛的 ANA 星空聯盟 Codeshare 聯營航線` | `recommend_routes_and_codeshares` |
+| **📖 規章遙測** | 📖 發動機啟動順序與滑行速限 | `請問 B777 與 A321 雙發噴射客機的地面發動機啟動順序與滑行速限是多少？` | `query_flight_sop_and_regulations` |
+| **📖 規章遙測** | ⚠️ 術科考核重大違規一票否決 | `請問術科實作考核中，哪些重大違規情事會直接觸發一票否決 (Automatic Fail)？` | `query_flight_sop_and_regulations` |
+| **📖 規章遙測** | 🛡️ LIVE 機隊認領與事故通報 | `請問 LIVE 機隊每位機師最多可以預約幾架飛機？若發生墜機事故需要在多久內通報？` | `query_flight_sop_and_regulations` |
+| **📖 規章遙測** | 📊 遙測黑盒子合格檢測 | `請幫我審核 sample_flight_pass.csv 飛行黑盒子紀錄。` | `analyze_flight_telemetry` |
+| **📖 規章遙測** | 🚨 遙測黑盒子違規檢驗 | `請幫我審核 sample_flight_fail.csv 飛行黑盒子紀錄。` | `analyze_flight_telemetry` |
+| **👨‍✈️ 飛官中心** | 💰 查詢個人時數點數與檔案 | `幫我查我的點數與個人檔案` | `query_pilot_profile` |
+| **👨‍✈️ 飛官中心** | 🔍 搜尋指定飛官檔案 (EVA001) | `搜尋飛官 EVA001 的資料與飛行檔案` | `search_pilot_user` |
+| **👨‍✈️ 飛官中心** | 🏆 查詢飛官時數與點數排行榜 | `幫我查飛行員時數排行榜與名次` | `query_leaderboard` |
+| **👨‍✈️ 飛官中心** | 🎒 查看飛官背包道具庫 (唯讀) | `幫我看一下我的道具庫與持有的通行證` | `query_pilot_inventory` |
+| **👨‍✈️ 飛官中心** | 📅 查詢官方活動、聯飛與 ROTW | `查詢近期官方活動、大聯飛與每週精選雙倍航線` | `query_calendar_events` / `query_events_and_rotw` |
+| **👨‍✈️ 飛官中心** | 📋 查詢近期歷史飛行報告 | `查看我最近的飛行紀錄與落地接地垂直速度` | `query_pilot_pireps` |
+| **👨‍✈️ 飛官中心** | 🖼️ 瀏覽影音藝廊精選照片 | `幫我看看藝廊目前有什麼精選照片` | `query_media_gallery` |
+| **👨‍✈️ 飛官中心** | 🏬 查看飛官商城架上商品目錄 | `幫我看一下商城目前架上有什麼商品` | `query_store_catalog` |
+| **🎙️ 航管機隊** | 🎧 ATC 等級與晉升差距計算 | `查詢我的 ATC rank 與距離下一個等級還多久` | `query_atc_status` |
+| **🎙️ 航管機隊** | 🎓 審查 ATC 培訓 5 大前置條件 | `檢查我是否滿足 /atc/mentoring 的培訓條件？` | `query_atc_mentoring_eligibility` |
+| **🎙️ 航管機隊** | 🌐 查看 LIVE 機隊總覽 | `查詢 /live/overview Live 模式機隊總覽與營運狀態` | `query_live_overview` |
+| **🎙️ 航管機隊** | 📡 全球航跡雷達在空班機追蹤 | `查詢目前有哪些長榮班機在線上飛行？` | `query_live_radar_and_tracker` |
+| **🎙️ 航管機隊** | 🤝 查詢星盟 Codeshare 夥伴 | `長榮航空現在有幾個 codeshare 夥伴？名單有哪些航空公司？` | `query_codeshare_partners` |
 
 ---
 
@@ -258,25 +370,25 @@ python -m streamlit run src/ui/web.py
 
 ## 五、 自動化測試證據 (Verification Evidence)
 
-本專案建置了完備的自動化測試套件，涵蓋 15 大工具運算、Aviation RAG 知識庫檢索、LLM 抽象層降級、CrewCenter API 安全管控與 Podman 容器規範檢測：
+本專案建置了完備的自動化測試套件，涵蓋 21 大工具運算、Aviation RAG 知識庫檢索、LLM 抽象層降級、CrewCenter API 安全管控與 Podman 容器規範檢測：
 
 ```bash
-python -m unittest discover tests
+python -m unittest discover tests -p "test_*.py"
 ```
 
 **測試執行結果**：
 ```text
-Ran 79 tests in 1.157s
+Ran 93 tests in 3.655s
 
 OK
 ```
-**79 項單元測試 100% 全數通過**：
-- **工具運算與防護 (28 項)**：風向三角分解、跑道方位修正、航網多維匹配、SimBrief 放行單格式、排行榜、活動行事曆、道具背包、藝廊、航跡雷達。
+**93 項單元測試 100% 全數通過**：
+- **工具運算與防護 (40 項)**：風向三角分解、跑道方位修正、航網多維匹配、SimBrief 放行單格式、排行榜、活動行事曆、道具背包、藝廊、航跡雷達、飛官呼號搜尋、ATC 等級差距計算、帶飛培訓 5 大前置條件資格審查、Live 機隊總覽與稼動率、星空聯盟聯營航網推薦。
 - **Aviation RAG 知識庫 (9 項)**：In-Memory BM25 檢索演算法、分詞權重增益、正則出處引文標記抽取、章節過濾精準度。
 - **LLM 多供應商抽象層 (8 項)**：Ollama 本地/區網連線健康檢查、Google Gemini 連線與降級機制、確定性離線規則引擎。
 - **後端 API 安全管控與飛官身分委派 (12 項)**：API Key 鑑別、503 Killswitch 緊急阻斷、429 Rate Limit 限流、Bearer Token 飛官委任驗證、商城唯讀防護。
 - **CLI 互動配置與參數精靈 (8 項)**：即席模型切換、連線健康度三層診斷。
-- **Agent 決策追蹤 (ReAct Trace) (8 項)**：多輪 HITL 人機協同追蹤紀錄結構與記憶體暫存釋放。
+- **Agent 決策追蹤 (ReAct Trace) 與漸進式串流推播 (10 項)**：多輪 HITL 人機協同追蹤紀錄結構、on_step 事件回呼驅動、記憶體暫存釋放。
 - **Podman 容器化標準與編排 (6 項)**：`Containerfile` 最小特權標準、Non-root 使用者、`podman-compose.yml` 服務配置檢核。
 
 ---
@@ -298,7 +410,7 @@ BRVA_Agent/
 ├── documents/                 # 作業技術規格與報告文件
 │   └── BRVA_Agent_Assignment2_Report.md # 作業二正式技術報告
 ├── scripts/
-│   ├── demo_test_suite.py     # 8 大航空實戰情境展示腳本
+│   ├── demo_test_suite.py     # 13 大航空實戰情境綜合展示腳本
 │   └── test_comprehensive_scenarios.py # 綜合實戰測試套件
 ├── src/
 │   ├── agent.py               # ReAct 決策循環與 Human-in-the-Loop 狀態機
@@ -307,12 +419,12 @@ BRVA_Agent/
 │   ├── context.py             # 飛官身分與授權上下文 (UserContext)
 │   ├── memory.py              # 多輪對話歷史與待簽派狀態暫存
 │   ├── llm/                   # 多模型抽象層 (Gemini / Ollama / Offline)
-│   ├── tools/                 # 15 大確定性航空專業工具
+│   ├── tools/                 # 21 大確定性航空專業與 CrewCenter 工具
 │   │   ├── weather_tool.py    # 起降 METAR 氣象與跑道側風運算
 │   │   ├── route_tool.py      # 長榮虛擬航網多條件檢索
 │   │   ├── simbrief_tool.py   # SimBrief 飛航放行單 (OFP) 生成
 │   │   ├── rag_tool.py        # 官方規章 In-Memory BM25 檢索
-│   │   ├── user_profile_tool.py # 飛官個人檔案與時數點數
+│   │   ├── user_profile_tool.py # 飛官個人檔案與呼號搜尋
 │   │   ├── store_catalog_tool.py # 飛官商城唯讀目錄
 │   │   ├── crewcenter_leaderboard_tool.py # 全員榮譽排行榜
 │   │   ├── crewcenter_calendar_tool.py    # 活動行事曆與 ROTW
@@ -320,9 +432,15 @@ BRVA_Agent/
 │   │   ├── crewcenter_gallery_tool.py     # 社群影音藝廊作品
 │   │   ├── crewcenter_tracker_tool.py     # 全球航跡雷達即時班機追蹤
 │   │   ├── crewcenter_pirep_tool.py       # 歷史 PIREP 與生效中簽派
+│   │   ├── crewcenter_atc_tool.py         # ATC 等級差距與 Mentoring 審核
+│   │   ├── crewcenter_live_tool.py        # Live 機隊總覽與在空稼動率
+│   │   ├── crewcenter_codeshare_tool.py   # 星空聯盟夥伴與聯營航線推薦
 │   │   └── telemetry_tool.py  # 飛行黑盒子時序數據審查
 │   └── ui/
 │       ├── web.py             # Streamlit 視覺化網頁儀表板
 │       └── cli.py             # 終端機互動式交談介面
-└── tests/                     # 79 項全自動單元測試套件
+└── tests/                     # 93 項全自動單元測試套件
+    ├── test_crewcenter_extended_tools.py # 延伸工具與意圖測試
+    ├── test_agent_trace.py    # 思考歷程與漸進串流回呼測試
+    └── ...
 ```
