@@ -142,19 +142,19 @@ def on_import_secret_clicked():
             linked = _auto_link_pilot(token.strip())
             if linked:
                 ctx = st.session_state.user_context
-                st.session_state["_secret_import_msg"] = ("success", f"✅ 成功載入 `sercet.txt` 並自動連結飛官：`{ctx.callsign}` ({ctx.username})！")
+                st.session_state["_secret_import_msg"] = ("success", f"✅ 成功載入 `.env` / `secret.txt` 並自動連結飛官：`{ctx.callsign}` ({ctx.username})！")
             else:
-                st.session_state["_secret_import_msg"] = ("success", "✅ 已成功從 `sercet.txt` 載入並套用參數！")
+                st.session_state["_secret_import_msg"] = ("success", "✅ 已成功從 `.env` / `secret.txt` 載入並套用參數！")
         else:
-            st.session_state["_secret_import_msg"] = ("success", "✅ 已成功從 `sercet.txt` 載入並套用參數！")
+            st.session_state["_secret_import_msg"] = ("success", "✅ 已成功從 `.env` / `secret.txt` 載入並套用參數！")
     else:
-        st.session_state["_secret_import_msg"] = ("warning", "⚠️ 未在專案根目錄找到 `sercet.txt` 或 `secret.txt`。")
+        st.session_state["_secret_import_msg"] = ("warning", "⚠️ 未在專案根目錄找到 `.env` 或 `secret.txt`。")
 
 
 # Sidebar
 with st.sidebar:
     st.header("🔐 核心連線金鑰與參數 (Secrets & API)")
-    st.caption("🛡️ 公開儲存庫防護：機敏參數由 `sercet.txt` 自動載入，亦可在此直接配置。")
+    st.caption("🛡️ 公開儲存庫防護：機敏參數由 `.env` 或 `secret.txt` 自動載入，亦可在此直接配置。")
 
     top_api_server = st.text_input(
         "🌐 API 伺服器網址 (API Server)",

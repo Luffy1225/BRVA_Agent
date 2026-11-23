@@ -63,11 +63,11 @@ def parse_secret_string(content: str) -> Dict[str, str]:
 
 def load_secret_file(target_path: Optional[Path] = None) -> Dict[str, str]:
     """
-    Loads secret credentials from sercet.txt or secret.txt (or target_path) if present.
+    Loads secret credentials from .env, secret.txt, or sercet.txt (or target_path) if present.
     Supports API_SERVER, CREWCENTER_TOKEN, BACKEND_KEY, LLM_API_KEY, OFFICIAL_TEST_TOKEN, etc.
     Returns the loaded dictionary of settings.
     """
-    targets = [target_path] if target_path else [ROOT_DIR / "sercet.txt", ROOT_DIR / "secret.txt"]
+    targets = [target_path] if target_path else [ROOT_DIR / ".env", ROOT_DIR / "secret.txt", ROOT_DIR / "sercet.txt"]
     for s_path in targets:
         if s_path and s_path.exists():
             try:
