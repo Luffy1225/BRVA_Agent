@@ -53,10 +53,10 @@ def parse_secret_string(content: str) -> Dict[str, str]:
             elif ku in ("LLM_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "API_KEY", "GEMINI_KEY", "GEMINI_APIKEY"):
                 os.environ["GEMINI_API_KEY"] = v
                 loaded["GEMINI_API_KEY"] = v
-            elif ku in ("TEST_PILOT_USERNAME",):
+            elif ku in ("TEST_PILOT_USERNAME", "PILOT_USERNAME", "CREWCENTER_USERNAME", "TEST_USERNAME"):
                 os.environ["TEST_PILOT_USERNAME"] = v
                 loaded["TEST_PILOT_USERNAME"] = v
-            elif ku in ("TEST_PILOT_PASSWORD",):
+            elif ku in ("TEST_PILOT_PASSWORD", "PILOT_PASSWORD", "CREWCENTER_PASSWORD", "TEST_PASSWORD"):
                 os.environ["TEST_PILOT_PASSWORD"] = v
                 loaded["TEST_PILOT_PASSWORD"] = v
             else:
@@ -88,6 +88,8 @@ def load_secret_file(target_path: Optional[Path] = None) -> Dict[str, str]:
                 with open(s_path, "r", encoding="utf-8") as f:
                     data = parse_secret_string(f.read())
                     if data:
+                        if "config" in globals() and globals()["config"] is not None:
+                            globals()["config"].refresh()
                         return data
             except Exception as e:
                 print(f"[Config] Warning loading {s_path.name}: {e}")
@@ -131,21 +133,21 @@ class Config:
     OLLAMA_TIMEOUT_SECONDS: float = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "30.0"))
 
     # Gemini Settings (Google Cloud AI)
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
 
     # Backend Connection
-    BRVA_API_BASE_URL: str = clean_api_url(os.getenv("BRVA_API_BASE_URL", "https://api.eva-virtual.com"))
-    BRVA_AGENT_API_KEY: str = os.getenv("BRVA_AGENT_API_KEY", "")
+    BRVA_API_BASE_URL: str = clean_api_url(os.getenv("BRVA_API_BASE_URL") or os.getenv("API_SERVER") or "https://api.eva-virtual.com")
+    BRVA_AGENT_API_KEY: str = os.getenv("BRVA_AGENT_API_KEY") or os.getenv("X_AGENT_KEY") or ""
 
     # Execution & Safety
     BACKEND_TIMEOUT_SECONDS: float = float(os.getenv("BACKEND_TIMEOUT_SECONDS", "5.0"))
     FALLBACK_TO_LOCAL: bool = os.getenv("FALLBACK_TO_LOCAL", "true").lower() in ("true", "1", "yes")
 
-    # Official Test Pilot & Credentials (loaded from sercet.txt or env)
-    OFFICIAL_TEST_TOKEN: str = os.getenv("OFFICIAL_TEST_TOKEN", "")
-    TEST_PILOT_USERNAME: str = os.getenv("TEST_PILOT_USERNAME", "")
-    TEST_PILOT_PASSWORD: str = os.getenv("TEST_PILOT_PASSWORD", "")
+    # Official Test Pilot & Credentials (loaded from sercet.txt, .env, or env)
+    OFFICIAL_TEST_TOKEN: str = os.getenv("OFFICIAL_TEST_TOKEN") or os.getenv("CREWCENTER_TOKEN") or os.getenv("TEST_PILOT_TOKEN") or os.getenv("PILOT_TOKEN") or ""
+    TEST_PILOT_USERNAME: str = os.getenv("TEST_PILOT_USERNAME") or os.getenv("PILOT_USERNAME") or os.getenv("CREWCENTER_USERNAME") or ""
+    TEST_PILOT_PASSWORD: str = os.getenv("TEST_PILOT_PASSWORD") or os.getenv("PILOT_PASSWORD") or os.getenv("CREWCENTER_PASSWORD") or ""
 
     # Local Data Files
     LOCAL_ROUTES_FILE: Path = DATA_DIR / "local_fallback_routes.csv"
@@ -154,18 +156,17 @@ class Config:
 
     def refresh(self):
         """Reload attributes from environment variables."""
-        load_secret_file()
         self.LLM_PROVIDER = os.getenv("LLM_PROVIDER", "auto").lower()
         self.OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         self.OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
         self.OLLAMA_TIMEOUT_SECONDS = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "30.0"))
-        self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+        self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("GOOGLE_API_KEY") or ""
         self.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
-        self.BRVA_API_BASE_URL = clean_api_url(os.getenv("BRVA_API_BASE_URL", "https://api.eva-virtual.com"))
-        self.BRVA_AGENT_API_KEY = os.getenv("BRVA_AGENT_API_KEY", "")
-        self.OFFICIAL_TEST_TOKEN = os.getenv("OFFICIAL_TEST_TOKEN", "")
-        self.TEST_PILOT_USERNAME = os.getenv("TEST_PILOT_USERNAME", "")
-        self.TEST_PILOT_PASSWORD = os.getenv("TEST_PILOT_PASSWORD", "")
+        self.BRVA_API_BASE_URL = clean_api_url(os.getenv("BRVA_API_BASE_URL") or os.getenv("API_SERVER") or "https://api.eva-virtual.com")
+        self.BRVA_AGENT_API_KEY = os.getenv("BRVA_AGENT_API_KEY") or os.getenv("X_AGENT_KEY") or ""
+        self.OFFICIAL_TEST_TOKEN = os.getenv("OFFICIAL_TEST_TOKEN") or os.getenv("CREWCENTER_TOKEN") or os.getenv("TEST_PILOT_TOKEN") or os.getenv("PILOT_TOKEN") or ""
+        self.TEST_PILOT_USERNAME = os.getenv("TEST_PILOT_USERNAME") or os.getenv("PILOT_USERNAME") or os.getenv("CREWCENTER_USERNAME") or ""
+        self.TEST_PILOT_PASSWORD = os.getenv("TEST_PILOT_PASSWORD") or os.getenv("PILOT_PASSWORD") or os.getenv("CREWCENTER_PASSWORD") or ""
         self.BACKEND_TIMEOUT_SECONDS = float(os.getenv("BACKEND_TIMEOUT_SECONDS", "5.0"))
         self.FALLBACK_TO_LOCAL = os.getenv("FALLBACK_TO_LOCAL", "true").lower() in ("true", "1", "yes")
 

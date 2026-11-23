@@ -106,6 +106,7 @@ if "messages" not in st.session_state:
 # Pre-initialize session_state keys for configuration widgets
 # If uninitialized or currently empty, attempt dynamic load from secret file / config
 loaded_secrets_init = load_secret_file()
+config.refresh()
 
 if "top_api_server_input" not in st.session_state or not st.session_state.top_api_server_input:
     st.session_state.top_api_server_input = loaded_secrets_init.get("BRVA_API_BASE_URL") or config.BRVA_API_BASE_URL
@@ -182,11 +183,11 @@ with st.sidebar:
     col_import, col_test = st.columns(2)
     with col_import:
         st.button(
-            "📥 匯入 sercet",
+            "📥 匯入 .env / secret",
             on_click=on_import_secret_clicked,
             width="stretch",
             key="cfg_import_btn",
-            help="從專案根目錄的 sercet.txt 自動載入並套用參數"
+            help="從專案根目錄的 .env 或 secret.txt 自動載入並套用參數"
         )
     with col_test:
         test_clicked = st.button(
@@ -436,6 +437,16 @@ with st.sidebar:
         "點擊下方按鈕進入查看："
     )
     st.link_button("🌐 前往 CrewCenter", "https://crewcenter.eva-virtual.com", width="stretch")
+
+    pilot_u = (config.TEST_PILOT_USERNAME or os.getenv("TEST_PILOT_USERNAME", "")).strip()
+    pilot_p = (config.TEST_PILOT_PASSWORD or os.getenv("TEST_PILOT_PASSWORD", "")).strip()
+    if pilot_u and pilot_p:
+        st.info(
+            f"📋 **審查驗證專用登入帳密**：\n\n"
+            f"• **帳號 (Username)**：`{pilot_u}`\n\n"
+            f"• **密碼 (Password)**：`{pilot_p}`\n\n"
+            f"*(可直接以此帳號登入 CrewCenter 查看簽派放行單與各項飛行數據)*"
+        )
 
     st.divider()
 

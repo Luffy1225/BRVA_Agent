@@ -27,6 +27,8 @@ Copy-Item .env.example .env
 | :--- | :---: | :--- | :--- |
 | **`GEMINI_API_KEY`** | **推薦** | Google Gemini API 金鑰，驅動 AI 思考與 Tool Calling 推理大腦 | `AIzaSy...` |
 | **`OFFICIAL_TEST_TOKEN`** | 選填 | CrewCenter 飛官授權碼 / Token，用於簽派放行、個人檔案、道具背包與商城查詢 | `ey...`（亦可寫為 `CREWCENTER_TOKEN`） |
+| **`TEST_PILOT_USERNAME`** | 選填 | 審查驗證專用飛官帳號，亦會自動顯示於網頁側邊欄供快速登入查看 | `AgenticTesting` |
+| **`TEST_PILOT_PASSWORD`** | 選填 | 審查驗證專用飛官密碼，亦會自動顯示於網頁側邊欄供快速登入查看 | `!1TestAgent` |
 | **`BRVA_API_BASE_URL`** | 選填 | BRVA 後端 API 伺服器端點 | `https://api.eva-virtual.com`（預設官方正式環境） |
 | **`LLM_PROVIDER`** | 選填 | 模型引擎選型模式：`auto`（自動偵測）、`gemini`、`ollama`、`offline`（純離線） | 預設 `auto` |
 | **`OLLAMA_BASE_URL`** | 選填 | 本機或區網 Ollama 伺服器位址（供本地開源大模型使用） | `http://localhost:11434` |
