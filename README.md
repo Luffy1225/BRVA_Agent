@@ -140,7 +140,7 @@ python -m streamlit run src/ui/web.py
 **預期結果**：取得 RCTP 即時 METAR 報文，根據 05L 跑道方位角用三角函數算出側風與逆風分量。
 
 **怎麼驗證**：
-- 到 [NOAA 航空氣象](https://aviationweather.gov/data/metar/?id=RCTP) 比對風向風速，自己用 sin/cos 算一次
+- 到 [NOAA 航空氣象](https://aviationweather.gov/data/metar/?id=RCTP) 比對風向風速
 
 ---
 
@@ -162,7 +162,7 @@ python -m streamlit run src/ui/web.py
 **預期結果**：列出商品清單，但明確拒絕購買，說明 AI 沒有代購權限。
 
 **怎麼驗證**：
-- 到 [CrewCenter 商城](https://crewcenter.eva-virtual.com/store) 確認點數沒有被扣
+- 到 [CrewCenter 商城](https://crewcenter.eva-virtual.com/store) 對比架上商品名稱與價格是否一致，並確認個人點數沒有被扣除
 
 ---
 
