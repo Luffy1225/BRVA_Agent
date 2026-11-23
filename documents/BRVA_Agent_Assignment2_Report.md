@@ -220,7 +220,7 @@ AeroAgent 系統由四大核心邏輯分層構成，兼具生產環境高可用�
 
 ## 四、 失敗情境分析 (Failure Cases Analysis)
 
-深入剖析四項具備民航代表性的邊界失敗情境，並在軟體架構層落實具體的防禦對策：
+深入剖析六項具備民航代表性的邊界失敗情境，並在軟體架構層落實具體的防禦對策：
 
 ### 4.1 失敗情境一：外部公共氣象服務故障或無效 ICAO 碼 (Malformed Input / API Outage)
 - **失敗狀況**：使用者輸入不存在之機場代碼（如 `/weather ABCD`）或外部公共氣象站（Aviation Weather Center）發生連線超時、HTTP 500 或 429 限流。
@@ -246,11 +246,29 @@ AeroAgent 系統由四大核心邏輯分層構成，兼具生產環境高可用�
   1. 實作 `UserContext` 身分閘門，未通過 Scoped Delegation Token 驗證者嚴格拒絕存取個人數據。
   2. 商城工具 `query_store_catalog` 鎖定 `can_purchase = False` 嚴格唯讀機制，杜絕任何代購變更行為。
 
+### 4.5 失敗情境五：CrewCenter 飛官未連線、授權碼過期或會話斷線 (CrewCenter Offline / Unlinked / Token Expired)
+- **失敗狀況**：使用者處於未連結飛官帳號之訪客模式，或既有授權碼過期 (Expired) / 遭後台管理員撤銷廢止，卻嘗試查詢個人私有飛行檔案、道具庫、歷史 PIREP 或請求直接核准簽派。
+- **原因分析**：系統嚴格遵循 Zero-Trust 零信任安全架構與民航隱私防護，未通過 Scoped Delegation Token 驗證前，禁止穿透存取機敏飛官數據。若直接拋出原始 HTTP 401/403 堆疊追蹤，會破壞專業機師使用體驗。
+- **解決方法**：
+  1. **座艙擬真副駕駛雙軌通知機制 (BUG-320)**：大腦採用座艙情境語氣（Flight Deck Co-pilot Persona）友善告知，並具備 5 組隨機民航語句備援庫（如：*「機長，我們的 ACARS 航電數據鏈連線中斷，目前暫時無法同步 CrewCenter 飛官檔案，請於左側側邊欄重新確認授權碼...」*）。
+  2. **非對稱開放與訪客優雅降級 (Graceful Guest Degradation)**：長榮公開航網、起降氣象 METAR、全員排行榜、官方活動行事曆、SOP 與民航法規手冊 RAG 知識庫維持 100% 開放正常使用，僅在涉及私有數據或簽派入庫時精準提供一鍵連結或手動輸入指引。
+
+### 4.6 失敗情境六：BRVA API 伺服器無法連線、網路分區或 503 服務維護 (APIServer Unreachable & Network Partition / 503 Outage)
+- **失敗狀況**：長榮虛擬航空官方後端伺服器進行維護停機、本機網路中斷、DNS 解析失敗、連線逾時 (Timeout) 或觸發 503 Killswitch 緊急熔斷阻斷。
+- **原因分析**：分散式系統與雲端 API 難以保證 100% 隨時在線。若 API Client 缺乏重試、超時控管與錯誤隔離，未捕獲之 `requests.exceptions.ConnectionError` 將直接擊穿 Agent ReAct 決策迴圈導致程式崩潰。
+- **解決方法**：
+  1. **客戶端通訊邊界防禦 (`BackendClient`)**：實作非同步/同步請求超時保護 (動態 5~25 秒) 與完整例外攔截包裝，捕捉 `ConnectionError`、`Timeout`、HTTP 502/503，自動轉譯為結構化錯誤物件，確保 Agent 主迴圈零中斷。
+  2. **確定性本地離線資料庫快取 (Deterministic Offline Fallback Database)**：
+     - **航網庫**：自動降級讀取本地 `data/local_fallback_routes.csv`，完整提供真實長榮/立榮航空班次。
+     - **簽派引擎**：啟用本地確定性離線放行演算法，自動依機型與距離推算標準巡航高度 (FL370)、計畫油量 (Block Fuel) 與法定備降場。
+     - **機隊與夥伴**：自動載入星空聯盟 8 大標準夥伴與典型機隊離線快照。
+  3. **側邊欄三合一即時健康度診斷**：以綠黃紅狀態膠囊 (Status Pill) 明確顯示 API Server 可達性與 HTTP 狀態碼，讓機長與評審能第一時間掌握網路狀態。
+
 ---
 
 ## 五、 自動化測試與工程驗證證據 (Testing & Verification)
 
-本專案建置了完備的測試套件，涵蓋 46 項全自動單元測試與 8 大端到端航空實戰情境，達成 100% 測試通過率：
+本專案建置了完備的測試套件，涵蓋 93 項全自動單元測試與 13 大端到端航空實戰情境，達成 100% 測試通過率：
 
 ```bash
 cd BRVA_Agent
@@ -259,17 +277,20 @@ python -m unittest discover tests
 
 **測試終端執行輸出**：
 ```text
-Ran 46 tests in 1.060s
+Ran 93 tests in 3.655s
 OK
 ```
 
-**測試模組分類統計表**：
-- **工具運算與防護 (`test_tools.py`, 18 項)**：風向三角函數分解、跑道磁方位偏角修正、黑盒子 1.6G 硬著陸一票否決、滑行超速滑動視窗防護、離線/已認證簽派放行格式。
+**測試模組分類統計表 (93 項 100% 通過)**：
+- **工具運算與防護 (40 項)**：風向三角函數分解、跑道磁方位偏角修正、黑盒子 1.6G 硬著陸一票否決、滑行超速滑動視窗防護、離線/已認證簽派放行格式、飛官呼號搜尋、ATC 晉升差距計算、帶飛培訓 5 大前置條件資格審查、Live 機隊總覽與稼動率、星空聯盟聯營航網推薦。
 - **Aviation RAG 知識庫 (`test_rag.py`, 9 項)**：In-Memory BM25 檢索演算法、分詞權重增益、正則出處引文標記抽取、章節過濾精準度。
 - **LLM 抽象層 (`test_llm_providers.py`, 8 項)**：Ollama 本地/區網連線健康檢查、Google Gemini 連線與降級機制、確定性離線規則引擎。
-- **後端 API 管控與身分委派 (`test_backend_api_control.py`, 11 項)**：`x-agent-key` 鑑別、503 Killswitch 緊急阻斷、429 Rate Limit 限流、Bearer Token 飛官委任驗證、商城唯讀防護。
+- **後端 API 管控與身分委派 (`test_backend_api_control.py`, 12 項)**：API Key 鑑別、503 Killswitch 緊急阻斷、429 Rate Limit 限流、Bearer Token 飛官委任驗證、商城唯讀防護。
+- **CLI 互動配置與參數精靈 (8 項)**：即席模型切換、連線健康度三層診斷。
+- **Agent 決策追蹤與漸進串流 (10 項)**：多輪 HITL 人機協同追蹤紀錄結構、on_step 事件回呼驅動。
+- **Podman 容器化標準 (6 項)**：Containerfile 最小特權標準、Non-root 使用者、podman-compose.yml 服務配置。
 
-**8 大端到端航空實戰情境全自動展示 (python scripts/demo_test_suite.py)**：
+**13 大端到端航空實戰情境全自動展示 (python scripts/demo_test_suite.py)**：
 ```text
 ✅ [PASS] 測試 1：第一輪航網推薦與 RJAA 16R 起降側風分析 (9.6 kts) 正常
 ✅ [PASS] 測試 2：第二輪 HITL 人機協同授權，自動生成 BRVA OFP 放行單 (FL370 / ACTIVE DISPATCH)
@@ -279,6 +300,12 @@ OK
 ✅ [PASS] 測試 6：官方 SOP、術科考核與 LIVE 規章 RAG 精準命中出處引文 (啟動順序 2->1 / 80%及格線 / 3小時通報)
 ✅ [PASS] 測試 7：飛官個人檔案與時數/點數查詢 (未認證阻擋與授權委託 EVA001 查詢)
 ✅ [PASS] 測試 8：CrewCenter 飛官商城架上目錄查詢與嚴格唯讀防護 (禁止 AI 代購)
+✅ [PASS] 測試 9：飛官名冊與呼號檢索 (EVA001 飛官檔案正常)
+✅ [PASS] 測試 10：ATC 管制等級與晉升差距計算 (認證航管員 ➔ 資深航管員 52.8% 達成率)
+✅ [PASS] 測試 11：ATC Mentoring 帶飛培訓 5 大前置條件資格審查 (5 項條件逐一條列審核)
+✅ [PASS] 測試 12：Live 模式全機隊營運總覽與稼動率 (在空航機動態即時清單)
+✅ [PASS] 測試 13：星空聯盟 Codeshare 夥伴與聯營航線推薦 (8 大夥伴航司與 ANA 推薦航線)
+```
 
 🎉 全部 8 大測試情境 100% 通過！ReAct + 7大工具 + 官方規章 RAG + 飛官身分委託完全正常！
 ```

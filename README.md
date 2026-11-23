@@ -366,6 +366,24 @@ python -m streamlit run src/ui/web.py
   1. 實作 `UserContext` 身分閘門，未通過 Scoped Delegation Token 驗證者嚴格拒絕存取個人數據。
   2. 商城工具 `query_store_catalog` 鎖定 `can_purchase = False` 嚴格唯讀機制，杜絕任何代購變更行為。
 
+### 失敗情境四：CrewCenter 飛官未連線、授權碼過期或會話斷線 (CrewCenter Offline / Unlinked / Token Expired)
+- **失敗狀況**：使用者處於未連結飛官帳號之訪客模式，或既有授權碼過期 (Expired) / 遭後台管理員撤銷廢止，卻嘗試查詢個人私有飛行檔案、道具庫、歷史 PIREP 或請求直接核准簽派。
+- **原因分析**：系統嚴格遵循 Zero-Trust 零信任安全架構與民航隱私防護，未通過 Scoped Delegation Token 驗證前，禁止穿透存取機敏飛官數據。若直接拋出原始 HTTP 401/403 堆疊追蹤，會破壞專業機師使用體驗。
+- **解決對策**：
+  1. **座艙擬真副駕駛雙軌通知機制 (BUG-320)**：大腦採用座艙情境語氣（Flight Deck Co-pilot Persona）友善告知，並具備 5 組隨機民航語句備援庫（如：*「機長，我們的 ACARS 航電數據鏈連線中斷，目前暫時無法同步 CrewCenter 飛官檔案，請於左側側邊欄重新確認授權碼...」*）。
+  2. **非對稱開放與訪客優雅降級 (Graceful Guest Degradation)**：長榮公開航網、起降氣象 METAR、全員排行榜、官方活動行事曆、SOP 與民航法規手冊 RAG 知識庫維持 100% 開放正常使用，僅在涉及私有數據或簽派入庫時精準提供一鍵連結或手動輸入指引。
+
+### 失敗情境五：BRVA API 伺服器無法連線、網路分區或 503 服務維護 (APIServer Unreachable & Network Partition / 503 Outage)
+- **失敗狀況**：長榮虛擬航空官方後端伺服器進行維護停機、本機網路中斷、DNS 解析失敗、連線逾時 (Timeout) 或觸發 503 Killswitch 緊急熔斷阻斷。
+- **原因分析**：分散式系統與雲端 API 難以保證 100% 隨時在線。若 API Client 缺乏重試、超時控管與錯誤隔離，未捕獲之 `requests.exceptions.ConnectionError` 將直接擊穿 Agent ReAct 決策迴圈導致程式崩潰。
+- **解決對策**：
+  1. **客戶端通訊邊界防禦 (`BackendClient`)**：實作非同步/同步請求超時保護 (動態 5~25 秒) 與完整例外攔截包裝，捕捉 `ConnectionError`、`Timeout`、HTTP 502/503，自動轉譯為結構化錯誤物件，確保 Agent 主迴圈零中斷。
+  2. **確定性本地離線資料庫快取 (Deterministic Offline Fallback Database)**：
+     - **航網庫**：自動降級讀取本地 `data/local_fallback_routes.csv`，完整提供真實長榮/立榮航空班次。
+     - **簽派引擎**：啟用本地確定性離線放行演算法，自動依機型與距離推算標準巡航高度 (FL370)、計畫油量 (Block Fuel) 與法定備降場。
+     - **機隊與夥伴**：自動載入星空聯盟 8 大標準夥伴與典型機隊離線快照。
+  3. **側邊欄三合一即時健康度診斷**：以綠黃紅狀態膠囊 (Status Pill) 明確顯示 API Server 可達性與 HTTP 狀態碼，讓機長與評審能第一時間掌握網路狀態。
+
 ---
 
 ## 五、 自動化測試證據 (Verification Evidence)
