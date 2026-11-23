@@ -313,33 +313,25 @@ OK
 
 ---
 
-## 六、 Podman 容器化標準建置與執行指南
+## 六、 Podman 容器化標準建置與執行指南 (推薦教授瀏覽器體驗)
 
 本專案嚴格遵循課程指定評分核心標準：「期末專案繳交 Agent 程式必須能夠透過 Podman engine 在不同平台重現 Agent 的執行才算完成作業，Podman 包裝與執行是本專案計劃的重點」。
 
-系統已配置符合 OCI 與課程標準之 `Containerfile`、`Dockerfile`、`.containerignore`、`.dockerignore` 與 `podman-compose.yml`，並落實非 root (`Non-root user: aero`, UID 1000) 最小特權原則，支援全平台（Linux、macOS、Windows）100% 離線確定性重現：
+系統已配置符合 OCI 與課程標準之 `Containerfile` 與 `Dockerfile`，並落實非 root (`USER aero`, UID 1000) 最小特權原則，支援全平台（Linux、macOS、Windows）100% 離線確定性重現，**預設直接推薦啟動 Streamlit 視覺化網頁介面**：
 
 ```bash
-# 1. 於 BRVA_Agent 目錄下建置標準 Podman 映像檔
+# 1. 於專案根目錄下建置標準 Podman 映像檔 (自動讀取 Containerfile，約 30 秒)
 podman build -t aeroagent:v1 .
 
-# 2. 依評測需求啟動容器：
-
-# 【推薦 A】啟動 Streamlit 視覺化網頁儀表板
+# 2. 啟動 Streamlit 視覺化網頁儀表板 (推薦教授瀏覽器體驗)
 podman run -d --rm -p 8501:8501 --name aeroagent-app aeroagent:v1
-# 瀏覽器開啟：http://localhost:8501
 
-# 【推薦 B】啟動終端機互動式交談 (CLI 模式)
-podman run -it --rm aeroagent:v1 python -m src.ui.cli
-
-# 【推薦 C】執行容器內全自動評分驗證 (105 項測試 + 14 大實戰情境)
-podman run --rm aeroagent:v1 python -m unittest discover tests -p "test_*.py"
-podman run --rm aeroagent:v1 python scripts/demo_test_suite.py
-
-# 【推薦 D】Podman Compose 一鍵編排
-podman compose up --build
+# 3. 於瀏覽器開啟操作
+# 👉 http://localhost:8501
 ```
-*(專案根目錄亦附有跨平台評測腳本：Linux/macOS 執行 `./scripts/run_podman.sh`；Windows 執行 `.\scripts\run_podman.ps1`)*
+
+> **💡 評審體驗提示**：進入網頁後，左側側邊欄已內建「**🛠️ 快速測試案例 (Demo Presets)**」面板，點擊按鈕即可一鍵體驗「簽派長途跨洋 BR3 (KIAD ➔ RCTP)」、「ROTW 雙倍航線推薦」、「起降側風向量分析」與「黑盒子遙測審查」等核心功能！
+> *(若評審需終端機純文字模式，亦可覆蓋指令執行：`podman run -it --rm aeroagent:v1 python -m src.ui.cli`)*
 
 ---
 

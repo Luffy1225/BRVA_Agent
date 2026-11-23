@@ -7,44 +7,23 @@
 
 ## ⚡ 快速執行指南 (Quick Start)
 
-### 方式一：Podman 容器執行 (期末評審指定標準 · 推薦 🐳)
+### 方式一：Podman 容器執行 (推薦教授瀏覽器體驗 🐳)
 
-本專案完全符合期末專案指定之 **Podman Engine 容器化規範**，提供原生 `Containerfile`、`Dockerfile` 與 `podman-compose.yml`，符合無特權 Non-root 使用者與 OCI 標準，支援跨平台（Linux、macOS、Windows）100% 離線確定性重現：
+本專案完全符合期末專案指定之 **Podman Engine 容器化規範**，提供原生 `Containerfile` 與 `Dockerfile`，落實非 root (`USER aero`, UID 1000) 最小特權原則，支援跨平台（Linux、macOS、Windows）100% 離線確定性重現，預設直接啟動具備航電座艙美學的 **Streamlit 視覺化網頁儀表板**：
 
-#### 1. 一鍵建置 Podman 映像檔
 ```bash
-# 於專案根目錄執行 (自動讀取 Containerfile)
+# 1. 於專案根目錄建置標準 Podman 映像檔 (自動讀取 Containerfile，約 30 秒)
 podman build -t aeroagent:v1 .
+
+# 2. 啟動 Streamlit 視覺化網頁儀表板 (本機埠 8501)
+podman run -d --rm -p 8501:8501 --name aeroagent-app aeroagent:v1
+
+# 3. 於瀏覽器開啟操作
+# 👉 http://localhost:8501
 ```
 
-#### 2. 依評測情境啟動容器
-
-- **情境 A：啟動 Streamlit 視覺化網頁儀表板 (推薦瀏覽器體驗)**
-  ```bash
-  podman run -d --rm -p 8501:8501 --name aeroagent-app aeroagent:v1
-  # 開啟瀏覽器操作：http://localhost:8501
-  ```
-
-- **情境 B：啟動終端機互動式交談 (CLI Interactive Mode)**
-  ```bash
-  podman run -it --rm aeroagent:v1 python -m src.ui.cli
-  ```
-
-- **情境 C：全自動容器內單元測試與 14 大實戰情境評測 (Automated Benchmark)**
-  ```bash
-  # 執行 105 項全自動單元測試 (100% PASS)
-  podman run --rm aeroagent:v1 python -m unittest discover tests -p "test_*.py"
-
-  # 執行 14 大端到端真實航空業務展示腳本 (100% PASS)
-  podman run --rm aeroagent:v1 python scripts/demo_test_suite.py
-  ```
-
-- **情境 D：Podman Compose 一鍵編排**
-  ```bash
-  podman compose up --build
-  ```
-
-*(本專案亦於 `scripts/` 提供跨平台一鍵輔助腳本：Linux/macOS 請執行 `./scripts/run_podman.sh`；Windows 請執行 `.\scripts\run_podman.ps1`)*
+> **💡 評審體驗提示**：進入網頁後，左側側邊欄已內建「**🛠️ 快速測試案例 (Demo Presets)**」面板，點擊按鈕即可一鍵體驗「簽派長途跨洋 BR3 (KIAD ➔ RCTP)」、「ROTW 雙倍航線推薦」、「起降側風向量分析」與「黑盒子遙測審查」等核心功能！
+> *(若評審需終端機純文字模式，亦可覆蓋指令執行：`podman run -it --rm aeroagent:v1 python -m src.ui.cli`)*
 
 ---
 
